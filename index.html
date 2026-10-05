@@ -388,7 +388,7 @@
       &nbsp;&nbsp;<span id="reportDate"></span>
     </span>
   </div>
-  <div id="versionLine" style="text-align:right;font-size:10.5px;color:#9aa0a6;margin-top:2px;">2026_october_01</div>
+  <div id="versionLine" style="text-align:right;font-size:10.5px;color:#9aa0a6;margin-top:2px;">version: loading…</div>
   <div id="debugLog" class="no-print" style="margin-top:6px;font-size:10.5px;color:#9aa0a6;word-break:break-all;"></div>
 
 </div>
@@ -747,6 +747,15 @@ function rebuildK5Options(gid, center, preferredValue){
 //     margin/blowout adjustment — a margin-based override was tested
 //     and made accuracy WORSE (down to 9/18, 50%), so it was
 //     deliberately left out despite being intuitively appealing.
+// NBA PPM thresholds — ESTIMATES, not backtested. Derived by scaling the
+// WNBA values (4.60 / 4.20 / 5.20) by the pace ratio, NBA ~4.75 combined
+// points/min vs WNBA ~4.25 (about x1.12). Replace after real NBA games.
+const NBA_PPM_FLAT  = 5.15; // J3<=5: Over if required PPM <= this
+const NBA_PPM_OVER  = 4.70; // J3 6-47: clear Over at or below
+const NBA_PPM_UNDER = 5.80; // J3 6-47: clear Under at or above
+// Q4 snapshot is at 5:00 left = 7 of 12 minutes played; scale to a full quarter.
+const Q4_SNAPSHOT_SCALE = 12/7;
+
 function computeDecision(k5, g2, g3, j3, e5, g5, l4){
   if(k5 === null) return { k4raw: null, m5Ppm: "", m5Consensus: "" };
   const requiredPPM = (k5 - (g2 + g3)) / j3;
@@ -754,10 +763,10 @@ function computeDecision(k5, g2, g3, j3, e5, g5, l4){
   if(j3 >= 48 || j3 <= 0){
     m5Ppm = "";
   } else if(j3 <= 5){
-    m5Ppm = requiredPPM <= 4.60 ? "Over" : "Under";
-  } else if(requiredPPM <= 4.20){
+    m5Ppm = requiredPPM <= NBA_PPM_FLAT ? "Over" : "Under";
+  } else if(requiredPPM <= NBA_PPM_OVER){
     m5Ppm = "Over";
-  } else if(requiredPPM >= 5.20){
+  } else if(requiredPPM >= NBA_PPM_UNDER){
     m5Ppm = "Under";
   } else {
     const currentPace = (g2 + g3) / (48 - j3);
@@ -769,9 +778,8 @@ function computeDecision(k5, g2, g3, j3, e5, g5, l4){
 }
 
 // Row 5 (B5-G5) now uses NBA numbers (12-min quarters, 48-min game).
-// L4/J3 range use 48 minutes; M4 uses F4<=15. STILL PLACEHOLDER (WNBA
-// values, pending NBA numbers): PPM thresholds 4.60 / 4.20 / 5.20 in
-// computeDecision, and the F4*2 multiplier in M3.
+// L4/J3 range use 48 minutes; M4 uses F4<=15. PPM thresholds and the M3
+// multiplier are NBA estimates (see NBA_PPM_* and Q4_SNAPSHOT_SCALE).
 // Set false to blank all prediction cells (L4, M3, M4, M5, K4). Raw data (Q1-Q4, OT, totals, the Q4=5min
 // snapshot F, T=35 G, odds, J4/K5) all keep working.
 // Set to true once NBA formulas are put in recalcGame / computeDecision.
@@ -883,9 +891,9 @@ function recalcGame(gid){
   if(F4 === 0){
     M3 = "";
   } else if(F4 >= 23){
-    M3 = (avgB4D4 > (F4*2)) ? "Below Avg" : "Above Avg";
+    M3 = (avgB4D4 > (F4*Q4_SNAPSHOT_SCALE)) ? "Below Avg" : "Above Avg";
   } else {
-    M3 = (avgB4D4 > (F4*2)) ? "Below Avg" : "Above Avg";
+    M3 = (avgB4D4 > (F4*Q4_SNAPSHOT_SCALE)) ? "Below Avg" : "Above Avg";
   }
   eg(gid,"M3").textContent = M3 === "" ? "–" : M3;
 
@@ -1603,6 +1611,16 @@ function updateReportDate(isoDateStr){
 updateReportDate(); // placeholder (today) until the first successful fetch sets the real game date
 
 $("downloadPdfBtn").addEventListener("click", ()=> window.print());
+
+// Version tag from the file's own last-modified time, same format as the
+// records page: version: 2026_october_05 3:07 AM
+(function renderVersionTag(){
+  const months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+  const d = new Date(document.lastModified);
+  const stamp = `${d.getFullYear()}_${months[d.getMonth()]}_${String(d.getDate()).padStart(2,'0')} ${d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}`;
+  const el = document.getElementById('versionLine');
+  if(el) el.textContent = `version: ${stamp}`;
+})();
 
 fetchScores();
 </script>
