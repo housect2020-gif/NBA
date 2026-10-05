@@ -768,9 +768,9 @@ function computeDecision(k5, g2, g3, j3, e5, g5, l4){
   return { k4raw: requiredPPM, m5Ppm, m5Consensus };
 }
 
-// NBA formulas are not supplied yet. The WNBA formulas hardcode 40-minute
-// games, so they would give wrong numbers here. While this is false every
-// prediction cell shows "–". Raw data (Q1-Q4, OT, totals, the Q4=5min
+// Row 5 (B5-G5) now uses NBA numbers (12-min quarters, 48-min game).
+// L4, M3, M4, M5 and K4 still use WNBA logic (40-minute games), so while
+// this is false they show "–" until NBA formulas are supplied. Raw data (Q1-Q4, OT, totals, the Q4=5min
 // snapshot F, T=35 G, odds, J4/K5) all keep working.
 // Set to true once NBA formulas are put in recalcGame / computeDecision.
 const FORMULAS_READY = false;
@@ -826,14 +826,14 @@ function recalcGame(gid){
   const L4 = timeLeftDenom !== 0 ? mround((G2+G3)*(40/timeLeftDenom), 0.5) : NaN;
   eg(gid,"L4").textContent = fmt(L4, 1);
 
-  // Row 5 (Predicted) — Q4 window is 5 min, full-game basis is 40 min
-  const B5 = (B4/10)*40;
-  const C5 = (C4/10)*40;
-  const D5 = (D4/10)*40;
+  // Row 5 (Predicted) — NBA: 12-min quarters, full-game basis is 48 min
+  const B5 = (B4/12)*48;
+  const C5 = (C4/12)*48;
+  const D5 = (D4/12)*48;
   const E5 = (B5+C5+D5)/3;
-  const F5 = (F4/5)*40;
+  const F5 = (F4/5)*48;
   const validQtrs = [B5,C5,D5].filter(v => !isNaN(v)).length;
-  const G5 = (B5+C5+D5 + ((F4*2)/10)*40) / (validQtrs + 1);
+  const G5 = (B5+C5+D5 + ((F4*2)/12)*48) / (validQtrs + 1);
   const I5 = I2+I3;
 
   eg(gid,"B5").textContent = fmt(B5);
@@ -1007,7 +1007,7 @@ function recalcGame(gid){
   l5El.classList.add(pickWinning ? "grand-total" : "pred-total");
 
   if(!FORMULAS_READY){
-    ["B5","C5","D5","E5","F5","G5","L4","M3","M4","M5"].forEach(c => { eg(gid,c).textContent = "–"; });
+    ["L4","M3","M4","M5"].forEach(c => { eg(gid,c).textContent = "–"; });
     eg(gid,"K4").innerHTML = "–";
   }
 }
