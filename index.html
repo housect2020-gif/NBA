@@ -160,6 +160,7 @@
   }
   .light-yellow{color:#d4b700 !important;}
   select.light-yellow{color:#d4b700;}
+  .season-badge{display:inline-block; margin-right:8px; padding:0 6px; border-radius:3px; background:#e8eaed; color:#5f6368; font-size:10px; font-weight:700; letter-spacing:.4px; vertical-align:middle;}
   td.matchup-label{
     text-align:center;
     font-weight:600;
@@ -1022,7 +1023,7 @@ function recalcGame(gid){
   }
 }
 
-function applyGameData(gid, away, home, status, overUnder){
+function applyGameData(gid, away, home, status, overUnder, seasonType){
   ensureGameBlock(gid);
   const st = gameState[gid];
   // Stash the market total (if ESPN has one for this game) so recalcGame
@@ -1114,7 +1115,18 @@ function applyGameData(gid, away, home, status, overUnder){
   } else {
     statusText = "Final";
   }
-  eg(gid,"matchup").textContent = `${away.name} @ ${home.name} — ${statusText}`;
+  // Season badge at the start of the label: PRE (preseason) or PLAYOFFS;
+  // nothing for the regular season.
+  const matchupEl = eg(gid,"matchup");
+  matchupEl.textContent = `${away.name} @ ${home.name} — ${statusText}`;
+  const badgeText = seasonType === 1 ? "PRE" : (seasonType === 3 ? "PLAYOFFS" : "");
+  if(badgeText){
+    const badge = document.createElement("span");
+    badge.className = "season-badge";
+    badge.textContent = badgeText;
+    badge.title = seasonType === 1 ? "Preseason game" : "Playoff game";
+    matchupEl.insertBefore(badge, matchupEl.firstChild);
+  }
 
   // J4: ESPN embeds the pre-game betting total directly in the same
   // payload we already poll for scores — no separate odds API/key/quota
@@ -1387,7 +1399,9 @@ function parseEvent(ev){
     away: toTeam(awayC),
     home: toTeam(homeC),
     status: { period, clock, state, detail },
-    overUnder
+    overUnder,
+    // ESPN season type: 1 = preseason, 2 = regular season, 3 = playoffs
+    seasonType: (ev.season && ev.season.type) || null
   };
 }
 
@@ -1442,7 +1456,7 @@ async function fetchScores(){
     for(const g of parsedList){
       const gid = "g" + g.id;
       ensureGameBlock(gid); // safe no-op if the block already exists
-      applyGameData(gid, g.away, g.home, g.status, g.overUnder);
+      applyGameData(gid, g.away, g.home, g.status, g.overUnder, g.seasonType);
     }
 
     $("lastUpdated").textContent = new Date().toLocaleTimeString();
@@ -1565,7 +1579,7 @@ function simulateGames(configs){
     const hasOverride = cfg && cfg.awayF !== undefined && cfg.homeF !== undefined;
     simulatedGids.set(gid, hasOverride ? { away: cfg.awayF, home: cfg.homeF } : null);
     ensureGameBlock(gid);
-    applyGameData(gid, g.away, g.home, g.status, g.overUnder);
+    applyGameData(gid, g.away, g.home, g.status, g.overUnder, g.seasonType);
   }
 
   const liveCount = parsedList.filter(g => g.status.state === "in").length;
