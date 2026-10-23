@@ -19,12 +19,12 @@
   *{box-sizing:border-box;}
   body{
     margin:0;
-    padding:24px;
+    padding:12px;
     background:#f4f5f7;
     font-family:"Segoe UI", Calibri, Arial, sans-serif;
     color:#202124;
   }
-  .wrap{max-width:1180px;margin:0 auto;}
+  .wrap{max-width:940px;margin:0 auto;}
   .topbar{
     display:flex;
     align-items:center;
@@ -83,11 +83,12 @@
     border-collapse:collapse;
     width:100%;
     table-layout:fixed;
-    font-size:11.5px;
+    font-size:11px;
   }
   th,td{
     border:1px solid var(--grid-line);
-    padding:4px 3px;
+    padding:1px 2px;
+    line-height:1.15;
     text-align:center;
     white-space:normal;
     word-break:break-word;
@@ -155,7 +156,7 @@
     letter-spacing:0.03em;
     color:#9aa0a6;
     text-transform:uppercase;
-    line-height:1.3;
+    line-height:1.1;
   }
   td.k4-cell{
     font-size:9.5px;
@@ -166,7 +167,7 @@
   td.proj-label.proj-right{ border-left:1px solid #d0d7e5; }
   td.proj-label .proj-title{ display:block; font-size:9px; font-weight:700; color:#5f6368; letter-spacing:.3px; text-transform:uppercase; margin-bottom:1px; }
   td.proj-label .proj-note{ display:block; margin-left:0; }
-  td.proj-label{ text-align:left; padding:3px 8px; font-size:10.5px; line-height:1.3; color:#3c4043; background:#f6f8fc; border-top:1px dashed #d0d7e5; }
+  td.proj-label{ text-align:left; padding:2px 6px; font-size:10.5px; line-height:1.3; color:#3c4043; background:#f6f8fc; border-top:1px dashed #d0d7e5; }
   td.proj-label b{ font-weight:700; }
   td.proj-label .proj-note{ color:#80868b; font-size:9px; margin-left:8px; }
   .hist-panel{ margin-top:14px; border:1px solid #d0d7e5; border-radius:6px; background:#fff; padding:8px 12px; font-size:12px; }
@@ -188,8 +189,9 @@
     background:#f4f5f7;
     border-left:none;
     border-right:none;
-    height:10px;
-    padding:2px;
+    height:4px;
+    padding:0;
+    line-height:1;
   }
   input[type=number]{
     width:100%;
@@ -198,7 +200,7 @@
     border-radius:3px;
     text-align:center !important;
     font-size:11px;
-    padding:2px 1px;
+    padding:0 1px;
     font-family:inherit;
     -moz-appearance:textfield;
     -webkit-appearance:none;
@@ -224,7 +226,7 @@
     border:1px solid #c7cad0;
     border-radius:3px;
     font-size:10.5px;
-    padding:2px;
+    padding:0 2px;
     font-family:inherit;
     width:100%;
     max-width:52px;
@@ -243,7 +245,7 @@
     gap:3px;
   }
   .odds-5min{
-    margin-top:3px;
+    margin-top:1px;
     font-size:8px;
     font-weight:400;
     letter-spacing:0.03em;
@@ -270,7 +272,7 @@
     border-radius:3px;
     text-align:center;
     font-size:11px;
-    padding:2px 1px;
+    padding:0 1px;
     font-family:inherit;
   }
   .k5-select{
@@ -283,7 +285,7 @@
     border-radius:3px;
     background:#f4f5f7;
     font-size:9px;
-    padding:2px 0px 2px 2px;
+    padding:0 0 0 2px;
     font-family:inherit;
     text-indent:-9999px; /* pushes the closed box's own selected-value text fully off-screen */
     overflow:hidden;
@@ -367,7 +369,7 @@
     <table>
       <colgroup id="mainColgroup">
         <col style="width:1.5%"> <!-- rownum -->
-        <col style="width:3.5%"> <!-- Team (3-letter code) -->
+        <col style="width:4.5%"> <!-- Team (3-letter code) -->
         <col style="width:5%">   <!-- Q1 -->
         <col style="width:5%">   <!-- Q2 -->
         <col style="width:5%">   <!-- Q3 -->
@@ -377,7 +379,7 @@
         <col style="width:5%">   <!-- Q4 -->
         <col style="width:7%">   <!-- Total -->
         <col style="width:7%">   <!-- O/U -->
-        <col style="width:18.5%"> <!-- Odds -->
+        <col style="width:17.5%"> <!-- Odds -->
         <col style="width:11%">  <!-- Diff. -->
         <col style="width:13.5%"><!-- Suggested Pick -->
       </colgroup>
@@ -443,7 +445,7 @@ let extraOTCount = 0;      // number of overtime columns currently rendered (Q5,
 function rebuildTableHeader(){
   let colHtml = `
     <col style="width:1.5%">
-    <col style="width:3.5%">
+    <col style="width:4.5%">
     <col style="width:5%">
     <col style="width:5%">
     <col style="width:5%">
@@ -456,7 +458,7 @@ function rebuildTableHeader(){
   colHtml += `
     <col style="width:7%">
     <col style="width:7%">
-    <col style="width:18.5%">
+    <col style="width:17.5%">
     <col style="width:11%">
     <col style="width:13.5%">
   `;
@@ -742,8 +744,9 @@ function makeGameRowsHtml(gid){
     </tr>
     <tr>
       <td class="rownum"></td>
-      <td colspan="7" class="proj-label" id="${gid}-proj">Projected final: –</td>
-      <td colspan="${6 + extraOTCount}" class="proj-label proj-right" id="${gid}-seasonAvg"><span class="proj-title">Season average</span>–</td>
+      <td colspan="5" class="proj-label" id="${gid}-proj">Projected final: –</td>
+      <td colspan="${5 + extraOTCount}" class="proj-label proj-right" id="${gid}-seasonAvg"><span class="proj-title">Season average</span>–</td>
+      <td colspan="3" class="proj-label proj-right" id="${gid}-seasonEst"><span class="proj-title">Matchup estimate</span>–</td>
     </tr>
     <tr class="spacer-row"><td colspan="${14 + extraOTCount}"></td></tr>
   `;
@@ -1646,6 +1649,7 @@ function requestTeamPoints(gid, away, home, seasonType){
 function renderSeasonCell(gid){
   const st = gameState[gid];
   const el = eg(gid, "seasonAvg");
+  const el2 = eg(gid, "seasonEst");
   if(!st || !st.seasonInfo || !el) return;
   const { away, home, seasonType } = st.seasonInfo;
   const scope = seasonType === 1 ? "preseason" : (seasonType === 3 ? "regular season" : "season");
@@ -1654,21 +1658,29 @@ function renderSeasonCell(gid){
   const H = home.teamId ? teamPts[`${home.teamId}_${schedParam(seasonType)}`] : null;
   const f = v => fmt(v, 1);
   const names = `<b>${away.name}</b>`, namesH = `<b>${home.name}</b>`;
+  const estTitle = `<span class="proj-title">Matchup estimate</span>`;
   if(away.avgPts == null || home.avgPts == null){
     el.innerHTML = `<span class="proj-title">${title}</span>–`;
+    if(el2) el2.innerHTML = `${estTitle}–`;
     return;
   }
-  let html = `<span class="proj-title">${title}</span>`;
-  html += `Scored/game &nbsp; ${names} ${f(away.avgPts)} &nbsp;·&nbsp; ${namesH} ${f(home.avgPts)} &nbsp;·&nbsp; <b>Total ${f(away.avgPts + home.avgPts)}</b>`;
+  // Left half: scored / allowed per game
+  let left = `<span class="proj-title">${title}</span>`;
+  left += `Scored/game &nbsp; ${names} ${f(away.avgPts)} &nbsp;·&nbsp; ${namesH} ${f(home.avgPts)} &nbsp;·&nbsp; <b>Total ${f(away.avgPts + home.avgPts)}</b>`;
   if(A && H){
-    html += `<br>Allowed/game &nbsp; ${names} ${f(A.pa)} &nbsp;·&nbsp; ${namesH} ${f(H.pa)} &nbsp;·&nbsp; <b>Total ${f(A.pa + H.pa)}</b>`;
-    const ea = (away.avgPts + H.pa) / 2, eh = (home.avgPts + A.pa) / 2;
-    html += `<br>Matchup estimate &nbsp; ${names} ${f(ea)} &nbsp;·&nbsp; ${namesH} ${f(eh)} &nbsp;·&nbsp; <b>Total ${f(ea + eh)}</b>`;
-    html += `<span class="proj-note">(${A.gp} / ${H.gp} games · matchup = each team's scored averaged with the opponent's allowed)</span>`;
-  } else {
-    html += `<span class="proj-note">(points scored per game; allowed shows once ESPN's team schedule loads)</span>`;
+    left += `<br>Allowed/game &nbsp; ${names} ${f(A.pa)} &nbsp;·&nbsp; ${namesH} ${f(H.pa)} &nbsp;·&nbsp; <b>Total ${f(A.pa + H.pa)}</b>`;
   }
-  el.innerHTML = html;
+  el.innerHTML = left;
+  // Right half: matchup estimate + the explanatory note
+  if(el2){
+    if(A && H){
+      const ea = (away.avgPts + H.pa) / 2, eh = (home.avgPts + A.pa) / 2;
+      el2.innerHTML = `${estTitle}${names} ${f(ea)} &nbsp;·&nbsp; ${namesH} ${f(eh)} &nbsp;·&nbsp; <b>Total ${f(ea + eh)}</b>`
+        + `<span class="proj-note">(${A.gp} / ${H.gp} games · each team's scored averaged with the opponent's allowed)</span>`;
+    } else {
+      el2.innerHTML = `${estTitle}–<span class="proj-note">(points scored per game; allowed shows once ESPN's team schedule loads)</span>`;
+    }
+  }
 }
 
 // ESPN's abbreviations are 2-4 letters (NY, GS, NO, SA, UTAH, WSH); show the
