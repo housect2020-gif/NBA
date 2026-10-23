@@ -160,6 +160,16 @@
   }
   .light-yellow{color:#d4b700 !important;}
   select.light-yellow{color:#d4b700;}
+  td.proj-label{ text-align:left; padding:5px 10px; font-size:12px; color:#3c4043; background:#f6f8fc; border-top:1px dashed #d0d7e5; }
+  td.proj-label b{ font-weight:700; }
+  td.proj-label .proj-note{ color:#80868b; font-size:10.5px; margin-left:8px; }
+  .hist-panel{ margin-top:14px; border:1px solid #d0d7e5; border-radius:6px; background:#fff; padding:8px 12px; font-size:12px; }
+  .hist-panel summary{ cursor:pointer; font-weight:700; font-size:13px; }
+  .hist-panel table{ border-collapse:collapse; width:100%; margin-top:8px; }
+  .hist-panel th, .hist-panel td{ border:1px solid #e3e7ef; padding:3px 6px; text-align:center; white-space:nowrap; }
+  .hist-panel th{ background:#f1f4fa; }
+  .hist-panel .hist-actions{ margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .hist-panel .hist-note{ color:#80868b; font-size:11px; }
   .season-badge{display:inline-block; margin-right:8px; padding:0 6px; border-radius:3px; background:#e8eaed; color:#5f6368; font-size:10px; font-weight:700; letter-spacing:.4px; vertical-align:middle;}
   td.matchup-label{
     text-align:center;
@@ -380,6 +390,26 @@
     </table>
   </div>
 
+  <details class="hist-panel no-print" id="histPanel">
+    <summary>Odds &amp; projection history (<span id="histCount">0</span> games)</summary>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr>
+          <th>Date</th><th>Game</th><th>Type</th>
+          <th>Pre-game O/U</th><th>Your odds at Q4 5:00</th><th>Final total</th>
+          <th>Final vs pre-game</th><th>Final vs 5:00 odds</th>
+          <th>Proj. away</th><th>Proj. home</th><th>Proj. total</th>
+        </tr></thead>
+        <tbody id="histBody"></tbody>
+      </table>
+    </div>
+    <div class="hist-actions">
+      <button class="refresh" id="histExportBtn">Export CSV</button>
+      <button class="refresh" id="histClearBtn">Clear history</button>
+      <span class="hist-note">Saved in this browser only. Games are recorded only while this page is open (pre-game line, your Q4 5:00 odds, projections at 5:00, final total). Clearing your browser's site data erases it.</span>
+    </div>
+  </details>
+
   <div class="footer">
     <span id="clockInfo">Auto-refreshing every 5s</span>
     <span>
@@ -490,6 +520,83 @@ function saveField(gid, suffix, value){
 }
 function loadField(gid, suffix){
   try{ return localStorage.getItem(`nba_${suffix}_${gid}`); }catch(e){ return null; }
+}
+// ---- Odds & projection history (browser-only, localStorage) ----------
+const HISTORY_KEY = "nba_history_v1";
+function loadHistory(){
+  try{ return JSON.parse(localStorage.getItem(HISTORY_KEY) || "{}"); }catch(e){ return {}; }
+}
+function saveHistory(h){
+  try{ localStorage.setItem(HISTORY_KEY, JSON.stringify(h)); }catch(e){ /* storage unavailable */ }
+}
+// patch can be an object or a function(current) -> object. Writes only
+// when something actually changed, so the 5-second poll doesn't churn
+// storage.
+function updateHistory(gid, patch){
+  const h = loadHistory();
+  const cur = h[gid] || { gid };
+  const add = typeof patch === "function" ? patch(cur) : patch;
+  if(!add) return;
+  const next = { ...cur, ...add };
+  if(JSON.stringify(next) === JSON.stringify(cur)) return;
+  h[gid] = next;
+  saveHistory(h);
+  renderHistory();
+}
+function etDate(iso){
+  const d = iso ? new Date(iso) : new Date();
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(d);
+}
+function historyRows(){
+  const h = loadHistory();
+  return Object.values(h).sort((a,b) => (b.date || "").localeCompare(a.date || "") || String(b.gid).localeCompare(String(a.gid)));
+}
+function overUnderResult(total, line){
+  if(total == null || line == null) return "";
+  if(total > line) return "Over";
+  if(total < line) return "Under";
+  return "Push";
+}
+function typeLabel(t){ return t === 1 ? "PRE" : (t === 3 ? "PLAYOFFS" : (t === 2 ? "REG" : "")); }
+function renderHistory(){
+  const body = document.getElementById("histBody");
+  if(!body) return;
+  const rows = historyRows();
+  document.getElementById("histCount").textContent = rows.length;
+  const f1 = v => (v == null ? "–" : Number(v).toFixed(1));
+  const resCell = r => {
+    if(!r) return "–";
+    const c = r === "Over" ? "#2e7d32" : (r === "Under" ? "#c62828" : "#5f6368");
+    return `<span style="color:${c};font-weight:700">${r}</span>`;
+  };
+  body.innerHTML = rows.map(r => {
+    const vsPre = overUnderResult(r.finalTotal, r.preOdds);
+    const vs5 = overUnderResult(r.finalTotal, r.odds5min);
+    return `<tr>
+      <td>${r.date || "–"}</td>
+      <td style="text-align:left">${r.away || "?"} @ ${r.home || "?"}</td>
+      <td>${typeLabel(r.seasonType)}</td>
+      <td>${f1(r.preOdds)}</td><td>${f1(r.odds5min)}</td>
+      <td>${r.finalTotal == null ? "–" : r.finalTotal}</td>
+      <td>${resCell(vsPre)}</td><td>${resCell(vs5)}</td>
+      <td>${f1(r.projAway5)}</td><td>${f1(r.projHome5)}</td><td>${f1(r.projTotal5)}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="11" style="color:#80868b">No games recorded yet.</td></tr>`;
+}
+function exportHistoryCsv(){
+  const head = ["Date","Away","Home","Type","PreGameOU","YourOddsAtQ4_5min","FinalAway","FinalHome","FinalTotal","FinalVsPre","FinalVs5min","ProjAway","ProjHome","ProjTotal"];
+  const q = v => `"${String(v == null ? "" : v).replace(/"/g,'""')}"`;
+  const lines = [head.join(",")].concat(historyRows().map(r => [
+    r.date, r.away, r.home, typeLabel(r.seasonType), r.preOdds, r.odds5min,
+    r.finalAway, r.finalHome, r.finalTotal,
+    overUnderResult(r.finalTotal, r.preOdds), overUnderResult(r.finalTotal, r.odds5min),
+    r.projAway5, r.projHome5, r.projTotal5
+  ].map(q).join(",")));
+  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `nba-odds-history-${etDate()}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
 }
 function round0AvgB4D4(B4, C4, D4){
   const avg = (B4 + C4 + D4) / 3;
@@ -618,6 +725,10 @@ function makeGameRowsHtml(gid){
       </td>
       <td class="formula" id="${gid}-L5">–</td>
       <td class="formula k4-cell" id="${gid}-M5">–</td>
+    </tr>
+    <tr>
+      <td class="rownum"></td>
+      <td colspan="${13 + extraOTCount}" class="proj-label" id="${gid}-proj">Projected final: –</td>
     </tr>
     <tr class="spacer-row"><td colspan="${14 + extraOTCount}"></td></tr>
   `;
@@ -925,6 +1036,51 @@ function recalcGame(gid){
       : "";
   }
 
+  // ---- Projected final score per team + combined ----------------------
+  // Uses only COMPLETED quarters among Q1-Q3 (a quarter in progress
+  // would drag the average down):
+  //   A = average points per completed quarter x 4 (full-game pace)
+  // Once the Q4 5:00 snapshot is in, B = T=43 pace scaled to the full
+  // game (G x 48/(48-J3)), and the projection is the average of A and B.
+  // Before the snapshot only A is used. Shown on the "Projected final" row.
+  const stNow = gameState[gid] || {};
+  const doneQ = (stNow.lastState === "post" || (stNow.period || 0) >= 4) ? 3 : Math.max(0, (stNow.period || 0) - 1);
+  const awayQs = [B2, C2, D2].slice(0, doneQ), homeQs = [B3, C3, D3].slice(0, doneQ);
+  let projAway = null, projHome = null, projMethod = "";
+  if(doneQ > 0){
+    const avgPace = qs => (qs.reduce((x,y)=>x+y,0) / qs.length) * 4;
+    projAway = avgPace(awayQs); projHome = avgPace(homeQs);
+    projMethod = `avg of ${doneQ} completed quarter${doneQ>1?"s":""} x 4`;
+    if(stNow.q4Snapshot && stNow.q4Snapshot.away !== null && J3 > 0 && J3 < 48){
+      projAway = (projAway + G2 * (48 / (48 - J3))) / 2;
+      projHome = (projHome + G3 * (48 / (48 - J3))) / 2;
+      projMethod = "avg of quarter pace and T=43 pace";
+    }
+  }
+  const projTotal = projAway === null ? null : projAway + projHome;
+  const projEl = eg(gid, "proj");
+  if(projEl){
+    projEl.innerHTML = projAway === null
+      ? "Projected final: –"
+      : `Projected final &nbsp; <b>${eg(gid,"awayName").textContent}</b> ${fmt(projAway,1)} &nbsp;·&nbsp; <b>${eg(gid,"homeName").textContent}</b> ${fmt(projHome,1)} &nbsp;·&nbsp; <b>Total ${fmt(projTotal,1)}</b><span class="proj-note">(${projMethod})</span>`;
+  }
+
+  // ---- History: record the 5:00 odds + projections once, final total at the end
+  if(st.oddsAt5min !== null && st.oddsAt5min !== undefined && st.q4Snapshot.away !== null){
+    updateHistory(gid, cur => {
+      const patch = { odds5min: st.oddsAt5min };
+      if(cur.projTotal5 == null && projAway !== null){
+        patch.projAway5 = Math.round(projAway*10)/10;
+        patch.projHome5 = Math.round(projHome*10)/10;
+        patch.projTotal5 = Math.round(projTotal*10)/10;
+      }
+      return patch;
+    });
+  }
+  if(stNow.lastState === "post" && !isNaN(I5) && I5 > 0){
+    updateHistory(gid, { finalAway: I2, finalHome: I3, finalTotal: I5 });
+  }
+
   const L5 = K5 === null ? "–" : fmt(Math.abs(K5 - I5), 1);
   eg(gid,"L5").textContent = L5;
 
@@ -1023,7 +1179,7 @@ function recalcGame(gid){
   }
 }
 
-function applyGameData(gid, away, home, status, overUnder, seasonType){
+function applyGameData(gid, away, home, status, overUnder, seasonType, gameDateIso){
   ensureGameBlock(gid);
   const st = gameState[gid];
   // Stash the market total (if ESPN has one for this game) so recalcGame
@@ -1134,7 +1290,9 @@ function applyGameData(gid, away, home, status, overUnder, seasonType){
   // freezes automatically once it goes live. (K4 used to mirror the
   // live version of this same value — it's now repurposed as Required
   // PPM, computed in recalcGame instead; see there.)
+  updateHistory(gid, { date: etDate(gameDateIso), away: away.name, home: home.name, seasonType: seasonType || null });
   if(typeof overUnder === "number" && state === "pre"){
+    updateHistory(gid, { preOdds: overUnder });
     const j4El = eg(gid, "J4");
     const j4Text = fmt(overUnder, 1);
     if(j4El) j4El.innerHTML = `<span class="cell-label">PRE-ODDS</span>${j4Text}`;
@@ -1468,7 +1626,7 @@ async function fetchScores(){
     for(const g of parsedList){
       const gid = "g" + g.id;
       ensureGameBlock(gid); // safe no-op if the block already exists
-      applyGameData(gid, g.away, g.home, g.status, g.overUnder, g.seasonType);
+      applyGameData(gid, g.away, g.home, g.status, g.overUnder, g.seasonType, g.date);
     }
 
     $("lastUpdated").textContent = new Date().toLocaleTimeString();
@@ -1591,7 +1749,7 @@ function simulateGames(configs){
     const hasOverride = cfg && cfg.awayF !== undefined && cfg.homeF !== undefined;
     simulatedGids.set(gid, hasOverride ? { away: cfg.awayF, home: cfg.homeF } : null);
     ensureGameBlock(gid);
-    applyGameData(gid, g.away, g.home, g.status, g.overUnder, g.seasonType);
+    applyGameData(gid, g.away, g.home, g.status, g.overUnder, g.seasonType, g.date);
   }
 
   const liveCount = parsedList.filter(g => g.status.state === "in").length;
@@ -1649,6 +1807,15 @@ $("downloadPdfBtn").addEventListener("click", ()=> window.print());
   const el = document.getElementById('versionLine');
   if(el) el.textContent = `version: ${stamp}`;
 })();
+
+document.getElementById("histExportBtn").addEventListener("click", exportHistoryCsv);
+document.getElementById("histClearBtn").addEventListener("click", () => {
+  if(confirm("Delete the saved odds & projection history from this browser?")){
+    try{ localStorage.removeItem(HISTORY_KEY); }catch(e){}
+    renderHistory();
+  }
+});
+renderHistory();
 
 fetchScores();
 </script>

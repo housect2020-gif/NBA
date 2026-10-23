@@ -202,6 +202,11 @@
       <option value="finished">Completed only</option>
     </select>
   </div>
+  <div id="preWrap" style="display:none;">
+    <label style="display:flex; align-items:center; gap:6px; cursor:pointer;" title="Preseason games never count toward records or head-to-head">
+      <input type="checkbox" id="showPre"> Include preseason games
+    </label>
+  </div>
   <div class="legend">
     <span class="legend-item"><span class="swatch swatch-today"></span>Scheduled today</span>
     <span class="legend-item"><span class="swatch swatch-live"></span>Live now</span>
@@ -552,7 +557,7 @@ function mergeRows(){
   const rows = SEASON_DATA.filter(r => r.date !== today).map(r => ({...r}));
   const liveEntries = Object.values(LIVE_MAP);
   liveEntries.forEach(live => {
-    const h2h = computeH2H(live.awayAbbr, live.homeAbbr, today);
+    const h2h = live.preseason ? { text: '—', leader: '—' } : computeH2H(live.awayAbbr, live.homeAbbr, today);
     rows.push({
       date: today,
       away: live.awayAbbr,
@@ -587,6 +592,8 @@ function render(){
   const teamFilter = document.getElementById('teamFilter').value;
   const dateFilter = document.getElementById('dateFilter').value;
   const viewFilter = document.getElementById('viewFilter').value;
+  const showPre = document.getElementById('showPre').checked;
+  document.getElementById('preWrap').style.display = viewFilter === 'finished' ? '' : 'none';
   const today = todayStr();
 
   let filtered = rows.filter(r => {
@@ -594,6 +601,8 @@ function render(){
     if(dateFilter && r.date !== dateFilter) return false;
     if(viewFilter === 'today' && r.date !== today) return false;
     if(viewFilter === 'finished' && (r.winner === '—' || !r.winner)) return false;
+    // Completed only: regular-season games unless the preseason box is ticked
+    if(viewFilter === 'finished' && r.preseason && !showPre) return false;
     return true;
   });
 
@@ -718,12 +727,14 @@ function computeH2HAccuracyExcludingTied(rows){
 }
 function renderH2HStatBoxes(){
   const todayKey = todayStr();
-  const prevDate = mostRecentPriorDate(SEASON_DATA, todayKey);
-  const prevDayRows = prevDate ? SEASON_DATA.filter(r => r.date === prevDate) : [];
+  // Preseason and playoff games never count toward any head-to-head box
+  const COUNTED = SEASON_DATA.filter(r => !r.preseason && !r.playoff);
+  const prevDate = mostRecentPriorDate(COUNTED, todayKey);
+  const prevDayRows = prevDate ? COUNTED.filter(r => r.date === prevDate) : [];
   const prevStats = computeH2HAccuracyExcludingTied(prevDayRows);
 
-  const last5Dates = lastNDistinctDates(SEASON_DATA, todayKey, 5);
-  const last5Rows = SEASON_DATA.filter(r => last5Dates.includes(r.date));
+  const last5Dates = lastNDistinctDates(COUNTED, todayKey, 5);
+  const last5Rows = COUNTED.filter(r => last5Dates.includes(r.date));
   const last5Stats = computeH2HAccuracyExcludingTied(last5Rows);
 
   const seasonRows = SEASON_DATA.filter(r => r.date < todayKey && !r.preseason && !r.playoff);
@@ -848,7 +859,7 @@ async function init(){
   SEASON_DATA = await fetchFullSeason();
   backfillSeasonRecords(SEASON_DATA);
   SEASON_DATA.forEach(r => {
-    const h2h = computeH2H(r.away, r.home, r.date);
+    const h2h = (r.preseason) ? { text: '—', leader: '—' } : computeH2H(r.away, r.home, r.date);
     r.h2h = h2h.text;
     r.h2h_winner = h2h.leader;
   });
@@ -872,6 +883,11 @@ async function init(){
   document.getElementById('teamFilter').addEventListener('change', render);
   document.getElementById('dateFilter').addEventListener('change', render);
   document.getElementById('viewFilter').addEventListener('change', render);
+  try{ document.getElementById('showPre').checked = localStorage.getItem('nba_records_showPre') === '1'; }catch(e){}
+  document.getElementById('showPre').addEventListener('change', () => {
+    try{ localStorage.setItem('nba_records_showPre', document.getElementById('showPre').checked ? '1' : '0'); }catch(e){}
+    render();
+  });
   document.getElementById('exportCsvBtn').addEventListener('click', exportCsv);
   document.getElementById('dateHeader').addEventListener('click', () => {
     if(document.getElementById('viewFilter').value !== 'today') return;
