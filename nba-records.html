@@ -253,9 +253,13 @@
 // preseason games are included; it is an assumption, not a confirmed
 // date. If the first preseason game was earlier/later, change this one
 // line and the cache will backfill the corrected range on next load.
+// ESPN's abbreviations are 2-4 letters (NY, GS, NO, SA, UTAH, WSH); show the
+// standard 3-letter code everywhere instead.
+const ABBR3 = { NY:"NYK", GS:"GSW", NO:"NOP", SA:"SAS", UTAH:"UTA", WSH:"WAS" };
+function abbr3(a){ return (a && ABBR3[a]) || a; }
 const SEASON_START = '2026-10-01';
 const SCOREBOARD_URL = 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard';
-const CACHE_KEY = 'nba_records_season_cache_v2';
+const CACHE_KEY = 'nba_records_season_cache_v3';
 
 // Same proxy fallback list, in the same direct-first order, already
 // confirmed reliable on the live-scores page — ESPN's NBA endpoint
@@ -352,8 +356,8 @@ async function fetchDateGames(dateStr){
         const away = competitors.find(c => c.homeAway === 'away');
         const home = competitors.find(c => c.homeAway === 'home');
         if(!away || !home) return;
-        const awayAbbr = away.team.abbreviation;
-        const homeAbbr = home.team.abbreviation;
+        const awayAbbr = abbr3(away.team.abbreviation);
+        const homeAbbr = abbr3(home.team.abbreviation);
         const awayScore = Number(away.score);
         const homeScore = Number(home.score);
         if(isNaN(awayScore) || isNaN(homeScore)) return;
@@ -524,7 +528,7 @@ async function fetchLiveToday(){
         const away = competitors.find(c => c.homeAway === 'away');
         const home = competitors.find(c => c.homeAway === 'home');
         if(!away || !home) return;
-        const awayAbbr = away.team.abbreviation, homeAbbr = home.team.abbreviation;
+        const awayAbbr = abbr3(away.team.abbreviation), homeAbbr = abbr3(home.team.abbreviation);
         let awayScore = Number(away.score), homeScore = Number(home.score);
         if(state === 'pre'){ awayScore = null; homeScore = null; }
         else { if(isNaN(awayScore)) awayScore = 0; if(isNaN(homeScore)) homeScore = 0; }

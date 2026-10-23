@@ -1638,6 +1638,11 @@ function renderSeasonCell(gid){
   el.innerHTML = html;
 }
 
+// ESPN's abbreviations are 2-4 letters (NY, GS, NO, SA, UTAH, WSH); show the
+// standard 3-letter code everywhere instead.
+const ABBR3 = { NY:"NYK", GS:"GSW", NO:"NOP", SA:"SAS", UTAH:"UTA", WSH:"WAS" };
+function abbr3(a){ return (a && ABBR3[a]) || a; }
+
 function statNum(competitor, name){
   const st = (competitor.statistics || []).find(x => x && x.name === name);
   const v = st ? parseFloat(st.displayValue) : NaN;
@@ -1651,7 +1656,7 @@ function parseEvent(ev){
   const homeC = competitors.find(c => c.homeAway === "home");
 
   const toTeam = c => ({
-    name: (c.team && c.team.displayName) || "Team",
+    name: abbr3(c.team && c.team.abbreviation) || (c.team && c.team.displayName) || "Team",
     q1: quarterPoints(c.linescores, 1),
     q2: quarterPoints(c.linescores, 2),
     q3: quarterPoints(c.linescores, 3),
