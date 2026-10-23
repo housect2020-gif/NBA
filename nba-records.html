@@ -202,7 +202,7 @@
       <option value="finished">Completed only</option>
     </select>
   </div>
-  <div id="preWrap" style="display:none;">
+  <div id="preWrap">
     <label style="display:flex; align-items:center; gap:6px; cursor:pointer;" title="Preseason games never count toward records or head-to-head">
       <input type="checkbox" id="showPre"> Include preseason games
     </label>
@@ -255,7 +255,7 @@
 // line and the cache will backfill the corrected range on next load.
 const SEASON_START = '2026-10-01';
 const SCOREBOARD_URL = 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard';
-const CACHE_KEY = 'nba_records_season_cache_v1';
+const CACHE_KEY = 'nba_records_season_cache_v2';
 
 // Same proxy fallback list, in the same direct-first order, already
 // confirmed reliable on the live-scores page — ESPN's NBA endpoint
@@ -593,7 +593,6 @@ function render(){
   const dateFilter = document.getElementById('dateFilter').value;
   const viewFilter = document.getElementById('viewFilter').value;
   const showPre = document.getElementById('showPre').checked;
-  document.getElementById('preWrap').style.display = viewFilter === 'finished' ? '' : 'none';
   const today = todayStr();
 
   let filtered = rows.filter(r => {
@@ -601,8 +600,8 @@ function render(){
     if(dateFilter && r.date !== dateFilter) return false;
     if(viewFilter === 'today' && r.date !== today) return false;
     if(viewFilter === 'finished' && (r.winner === '—' || !r.winner)) return false;
-    // Completed only: regular-season games unless the preseason box is ticked
-    if(viewFilter === 'finished' && r.preseason && !showPre) return false;
+    // Every view: regular-season games only, unless the preseason box is ticked
+    if(r.preseason && !showPre) return false;
     return true;
   });
 
