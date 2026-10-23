@@ -403,7 +403,7 @@
         <thead><tr>
           <th>Date</th><th>Game</th><th>Type</th>
           <th>Pre-game O/U</th><th>Your odds at Q4 5:00</th><th>Final total</th>
-          <th>Final vs pre-game</th><th>Final vs 5:00 odds</th>
+          <th>Final vs pre-game</th><th>Final vs 5:00 odds</th><th>Pick @5:00 PPM</th><th>Pick @5:00 Cons.</th>
           <th>Proj. away</th><th>Proj. home</th><th>Proj. total</th>
         </tr></thead>
         <tbody id="histBody"></tbody>
@@ -575,6 +575,12 @@ function renderHistory(){
     const c = r === "Over" ? "#2e7d32" : (r === "Under" ? "#c62828" : "#5f6368");
     return `<span style="color:${c};font-weight:700">${r}</span>`;
   };
+  const pickCell = (pick, actual) => {
+    if(!pick) return "–";
+    const mark = !actual || actual === "Push" ? "" : (pick === actual ? " ✓" : " ✗");
+    const c = pick === "Over" ? "#2e7d32" : "#c62828";
+    return `<span style="color:${c};font-weight:700">${pick}</span>${mark}`;
+  };
   body.innerHTML = rows.map(r => {
     const vsPre = overUnderResult(r.finalTotal, r.preOdds);
     const vs5 = overUnderResult(r.finalTotal, r.odds5min);
@@ -585,17 +591,19 @@ function renderHistory(){
       <td>${f1(r.preOdds)}</td><td>${f1(r.odds5min)}</td>
       <td>${r.finalTotal == null ? "–" : r.finalTotal}</td>
       <td>${resCell(vsPre)}</td><td>${resCell(vs5)}</td>
+      <td>${pickCell(r.pick5Ppm, vs5)}</td><td>${pickCell(r.pick5Cons, vs5)}</td>
       <td>${f1(r.projAway5)}</td><td>${f1(r.projHome5)}</td><td>${f1(r.projTotal5)}</td>
     </tr>`;
-  }).join("") || `<tr><td colspan="11" style="color:#80868b">No games recorded yet.</td></tr>`;
+  }).join("") || `<tr><td colspan="13" style="color:#80868b">No games recorded yet.</td></tr>`;
 }
 function exportHistoryCsv(){
-  const head = ["Date","Away","Home","Type","PreGameOU","YourOddsAtQ4_5min","FinalAway","FinalHome","FinalTotal","FinalVsPre","FinalVs5min","ProjAway","ProjHome","ProjTotal"];
+  const head = ["Date","Away","Home","Type","PreGameOU","YourOddsAtQ4_5min","FinalAway","FinalHome","FinalTotal","FinalVsPre","FinalVs5min","PickAt5_PPM","PickAt5_Consensus","ProjAway","ProjHome","ProjTotal"];
   const q = v => `"${String(v == null ? "" : v).replace(/"/g,'""')}"`;
   const lines = [head.join(",")].concat(historyRows().map(r => [
     r.date, r.away, r.home, typeLabel(r.seasonType), r.preOdds, r.odds5min,
     r.finalAway, r.finalHome, r.finalTotal,
     overUnderResult(r.finalTotal, r.preOdds), overUnderResult(r.finalTotal, r.odds5min),
+    r.pick5Ppm, r.pick5Cons,
     r.projAway5, r.projHome5, r.projTotal5
   ].map(q).join(",")));
   const blob = new Blob([lines.join("\n")], { type: "text/csv" });
@@ -1136,7 +1144,28 @@ function recalcGame(gid){
   // the whole game, not just from Q4 on. See computeDecision above
   // (module scope) for the shared formula.
 
-  const live = computeDecision(K5, G2, G3, J3, E5, G5, L4);
+  const liveNow = computeDecision(K5, G2, G3, J3, E5, G5, L4);
+
+  // Freeze at the Q4 5:00 mark: once the 5:00 snapshot is confirmed, K4/M5
+  // keep the result computed at that moment. They are recomputed (and
+  // frozen again) only if K5 -- or the J3 minutes-left dropdown -- is
+  // changed afterwards. Before the snapshot they stay live.
+  let live = liveNow, stage = "LIVE";
+  if(st.q4Snapshot && st.q4Snapshot.away !== null){
+    const fz = st.m5Frozen;
+    if(!fz){
+      st.m5Frozen = { k5: K5, j3: J3, res: liveNow, changed: false };
+    } else if(fz.k5 !== K5 || fz.j3 !== J3){
+      st.m5Frozen = { k5: K5, j3: J3, res: liveNow, changed: fz.k5 !== null };
+    }
+    live = st.m5Frozen.res;
+    stage = st.m5Frozen.changed ? "K5 CHANGED" : "AT 5:00";
+    if(!st.m5Frozen.changed && K5 !== null){
+      updateHistory(gid, cur => cur.pick5Ppm !== undefined ? null : {
+        pick5Ppm: live.m5Ppm || null, pick5Cons: live.m5Consensus || null
+      });
+    }
+  }
 
   function k4Span(raw, pick, label){
     let color, suffix;
@@ -1149,7 +1178,7 @@ function recalcGame(gid){
   if(live.k4raw === null){
     eg(gid,"K4").innerHTML = "–";
   } else {
-    eg(gid,"K4").innerHTML = k4Span(live.k4raw, live.m5Ppm, "LIVE PPM");
+    eg(gid,"K4").innerHTML = k4Span(live.k4raw, live.m5Ppm, stage === "LIVE" ? "LIVE PPM" : (stage === "AT 5:00" ? "PPM @ 5:00" : "PPM · K5 CHANGED"));
   }
 
   function m5Span(pick, label){
@@ -1166,7 +1195,8 @@ function recalcGame(gid){
   if(live.m5Ppm === "" && live.m5Consensus === ""){
     eg(gid,"M5").innerHTML = "–";
   } else {
-    const parts = [m5Span(live.m5Ppm, "LIVE PICK (PPM)"), m5Span(live.m5Consensus, "LIVE PICK (CONSENSUS)")];
+    const pickLbl = stage === "LIVE" ? "LIVE PICK" : (stage === "AT 5:00" ? "PICK @ 5:00" : "PICK · K5 CHANGED");
+    const parts = [m5Span(live.m5Ppm, `${pickLbl} (PPM)`), m5Span(live.m5Consensus, `${pickLbl} (CONSENSUS)`)];
     eg(gid,"M5").innerHTML = parts.filter(p => p).join("<br>") || "–";
   }
 
