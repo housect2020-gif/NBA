@@ -160,6 +160,9 @@
   }
   .light-yellow{color:#d4b700 !important;}
   select.light-yellow{color:#d4b700;}
+  td.proj-label.proj-right{ border-left:1px solid #d0d7e5; }
+  td.proj-label .proj-title{ display:block; font-size:10.5px; font-weight:700; color:#5f6368; letter-spacing:.3px; text-transform:uppercase; margin-bottom:1px; }
+  td.proj-label .proj-note{ display:block; margin-left:0; }
   td.proj-label{ text-align:left; padding:5px 10px; font-size:12px; color:#3c4043; background:#f6f8fc; border-top:1px dashed #d0d7e5; }
   td.proj-label b{ font-weight:700; }
   td.proj-label .proj-note{ color:#80868b; font-size:10.5px; margin-left:8px; }
@@ -728,7 +731,8 @@ function makeGameRowsHtml(gid){
     </tr>
     <tr>
       <td class="rownum"></td>
-      <td colspan="${13 + extraOTCount}" class="proj-label" id="${gid}-proj">Projected final: –</td>
+      <td colspan="7" class="proj-label" id="${gid}-proj">Projected final: –</td>
+      <td colspan="${6 + extraOTCount}" class="proj-label proj-right" id="${gid}-seasonAvg"><span class="proj-title">Season average</span>–</td>
     </tr>
     <tr class="spacer-row"><td colspan="${14 + extraOTCount}"></td></tr>
   `;
@@ -1061,8 +1065,8 @@ function recalcGame(gid){
   const projEl = eg(gid, "proj");
   if(projEl){
     projEl.innerHTML = projAway === null
-      ? "Projected final: –"
-      : `Projected final &nbsp; <b>${eg(gid,"awayName").textContent}</b> ${fmt(projAway,1)} &nbsp;·&nbsp; <b>${eg(gid,"homeName").textContent}</b> ${fmt(projHome,1)} &nbsp;·&nbsp; <b>Total ${fmt(projTotal,1)}</b><span class="proj-note">(${projMethod})</span>`;
+      ? `<span class="proj-title">Current game</span>Projected final: –`
+      : `<span class="proj-title">Current game</span><b>${eg(gid,"awayName").textContent}</b> ${fmt(projAway,1)} &nbsp;·&nbsp; <b>${eg(gid,"homeName").textContent}</b> ${fmt(projHome,1)} &nbsp;·&nbsp; <b>Total ${fmt(projTotal,1)}</b><span class="proj-note">(${projMethod})</span>`;
   }
 
   // ---- History: record the 5:00 odds + projections once, final total at the end
@@ -1189,6 +1193,13 @@ function applyGameData(gid, away, home, status, overUnder, seasonType, gameDateI
   if(typeof overUnder === "number") st.marketTotal = overUnder;
 
   eg(gid,"awayName").textContent = away.name;
+  // Season scoring/allowed per game for each team (see renderSeasonCell)
+  {
+    const st0 = gameState[gid];
+    st0.seasonInfo = { away, home, seasonType };
+    renderSeasonCell(gid);
+    requestTeamPoints(gid, away, home, seasonType);
+  }
   eg(gid,"homeName").textContent = home.name;
 
   eg(gid,"B2").value = away.q1; eg(gid,"C2").value = away.q2; eg(gid,"D2").value = away.q3;
@@ -1535,6 +1546,104 @@ function quarterPoints(linescores, period){
   return entry ? num(entry.value) : 0;
 }
 
+// ---- Season points scored / allowed per team ---------------------------
+// "Scored" comes straight from the scoreboard payload (avgPoints). "Allowed"
+// is not in that payload, so it is computed from each team's completed
+// games on ESPN's team schedule feed (one request per team, cached 30 min).
+const TEAM_PTS_TTL = 30 * 60 * 1000;
+const teamPts = {};        // "<teamId>_<seasonTypeParam>" -> { pf, pa, gp }
+const teamPtsInflight = {};
+function schedParam(seasonType){ return seasonType === 1 ? 1 : 2; }
+function scoreVal(sc){
+  if(sc == null) return NaN;
+  if(typeof sc === "object") return parseFloat(sc.value != null ? sc.value : sc.displayValue);
+  return parseFloat(sc);
+}
+async function loadTeamPoints(teamId, seasonType){
+  const key = `${teamId}_${schedParam(seasonType)}`;
+  if(teamPts[key]) return teamPts[key];
+  try{
+    const raw = localStorage.getItem("nba_teamPts_" + key);
+    if(raw){
+      const o = JSON.parse(raw);
+      if(o && Date.now() - o.t < TEAM_PTS_TTL){ teamPts[key] = o.v; return o.v; }
+    }
+  }catch(e){}
+  if(teamPtsInflight[key]) return teamPtsInflight[key];
+  const target = `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${teamId}/schedule?seasontype=${schedParam(seasonType)}`;
+  teamPtsInflight[key] = (async () => {
+    for(const wrap of PROXIES){
+      try{
+        const res = await fetch(wrap(target), { cache: "no-store" });
+        if(!res.ok) continue;
+        const data = await res.json();
+        let pf = 0, pa = 0, gp = 0;
+        for(const ev of (data.events || [])){
+          const comp = ev.competitions && ev.competitions[0];
+          if(!comp || !(comp.status && comp.status.type && comp.status.type.completed)) continue;
+          const us = (comp.competitors || []).find(c => String(c.team && c.team.id) === String(teamId));
+          const them = (comp.competitors || []).find(c => c !== us);
+          const a = us ? scoreVal(us.score) : NaN, b = them ? scoreVal(them.score) : NaN;
+          if(isNaN(a) || isNaN(b)) continue;
+          pf += a; pa += b; gp++;
+        }
+        const v = gp > 0 ? { pf: pf / gp, pa: pa / gp, gp } : null;
+        teamPts[key] = v;
+        try{ localStorage.setItem("nba_teamPts_" + key, JSON.stringify({ t: Date.now(), v })); }catch(e){}
+        return v;
+      }catch(e){ /* try next route */ }
+    }
+    teamPts[key] = null;
+    return null;
+  })();
+  const out = await teamPtsInflight[key];
+  delete teamPtsInflight[key];
+  return out;
+}
+function requestTeamPoints(gid, away, home, seasonType){
+  const st = gameState[gid];
+  if(!st || !away.teamId || !home.teamId) return;
+  const A0 = teamPts[`${away.teamId}_${schedParam(seasonType)}`], H0 = teamPts[`${home.teamId}_${schedParam(seasonType)}`];
+  if(A0 && H0) return;
+  if(st.ptsRequestedAt && Date.now() - st.ptsRequestedAt < 5*60*1000) return; // retry a failed lookup after 5 min
+  st.ptsRequestedAt = Date.now();
+  Promise.all([loadTeamPoints(away.teamId, seasonType), loadTeamPoints(home.teamId, seasonType)])
+    .then(() => { if(gameState[gid]) renderSeasonCell(gid); });
+}
+function renderSeasonCell(gid){
+  const st = gameState[gid];
+  const el = eg(gid, "seasonAvg");
+  if(!st || !st.seasonInfo || !el) return;
+  const { away, home, seasonType } = st.seasonInfo;
+  const scope = seasonType === 1 ? "preseason" : (seasonType === 3 ? "regular season" : "season");
+  const title = scope === "season" ? "Season average" : `Average (${scope})`;
+  const A = away.teamId ? teamPts[`${away.teamId}_${schedParam(seasonType)}`] : null;
+  const H = home.teamId ? teamPts[`${home.teamId}_${schedParam(seasonType)}`] : null;
+  const f = v => fmt(v, 1);
+  const names = `<b>${away.name}</b>`, namesH = `<b>${home.name}</b>`;
+  if(away.avgPts == null || home.avgPts == null){
+    el.innerHTML = `<span class="proj-title">${title}</span>–`;
+    return;
+  }
+  let html = `<span class="proj-title">${title}</span>`;
+  html += `Scored/game &nbsp; ${names} ${f(away.avgPts)} &nbsp;·&nbsp; ${namesH} ${f(home.avgPts)} &nbsp;·&nbsp; <b>Total ${f(away.avgPts + home.avgPts)}</b>`;
+  if(A && H){
+    html += `<br>Allowed/game &nbsp; ${names} ${f(A.pa)} &nbsp;·&nbsp; ${namesH} ${f(H.pa)} &nbsp;·&nbsp; <b>Total ${f(A.pa + H.pa)}</b>`;
+    const ea = (away.avgPts + H.pa) / 2, eh = (home.avgPts + A.pa) / 2;
+    html += `<br>Matchup estimate &nbsp; ${names} ${f(ea)} &nbsp;·&nbsp; ${namesH} ${f(eh)} &nbsp;·&nbsp; <b>Total ${f(ea + eh)}</b>`;
+    html += `<span class="proj-note">(${A.gp} / ${H.gp} games · matchup = each team's scored averaged with the opponent's allowed)</span>`;
+  } else {
+    html += `<span class="proj-note">(points scored per game; allowed shows once ESPN's team schedule loads)</span>`;
+  }
+  el.innerHTML = html;
+}
+
+function statNum(competitor, name){
+  const st = (competitor.statistics || []).find(x => x && x.name === name);
+  const v = st ? parseFloat(st.displayValue) : NaN;
+  return isNaN(v) ? null : v;
+}
+
 function parseEvent(ev){
   const comp = ev.competitions[0];
   const competitors = comp.competitors || [];
@@ -1547,7 +1656,11 @@ function parseEvent(ev){
     q2: quarterPoints(c.linescores, 2),
     q3: quarterPoints(c.linescores, 3),
     q4: quarterPoints(c.linescores, 4),
-    linescores: c.linescores || []
+    linescores: c.linescores || [],
+    // Season-to-date scoring from ESPN's own team stats in the same payload
+    teamId: (c.team && c.team.id) || null,
+    avgPts: statNum(c, "avgPoints"),
+    totalPts: statNum(c, "points")
   });
 
   const statusBlock = comp.status || ev.status || {};
