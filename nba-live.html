@@ -432,6 +432,8 @@
 
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="cloud.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const eg = (gid, suffix) => document.getElementById(`${gid}-${suffix}`);
@@ -1219,7 +1221,7 @@ function recalcGame(gid){
   }
 }
 
-function applyGameData(gid, away, home, status, overUnder, seasonType, gameDateIso){
+function applyGameData(gid, away, home, status, overUnder, seasonType, gameDateIso, cloudPreOdds){
   ensureGameBlock(gid);
   const st = gameState[gid];
   // Stash the market total (if ESPN has one for this game) so recalcGame
@@ -1355,6 +1357,19 @@ function applyGameData(gid, away, home, status, overUnder, seasonType, gameDateI
       k5ManualEl.value = String(Math.floor(overUnder));
       saveField(gid, "K5manual", k5ManualEl.value);
     }
+  }
+
+  // Game already started (or finished) before this page saw the pre-game line:
+  // fall back to the closing pre-game total the server job saved in the database.
+  if(typeof cloudPreOdds === "number" && state !== "pre"){
+    const j4El = eg(gid, "J4");
+    const j4Text = fmt(cloudPreOdds, 1);
+    if(j4El && !/\d/.test(j4El.textContent)){
+      j4El.innerHTML = `<span class="cell-label">PRE-ODDS</span>${j4Text}`;
+      saveField(gid, "J4", j4Text);
+    }
+    updateHistory(gid, cur => cur.preOdds !== undefined && cur.preOdds !== null ? null : { preOdds: cloudPreOdds });
+    if(st.marketTotal === undefined) st.marketTotal = cloudPreOdds;
   }
 
   recalcGame(gid);
@@ -1786,10 +1801,13 @@ async function fetchScores(){
       rebuildForOT(needed);
     }
 
+    let cloudOdds = {};
+    try{ if(window.cloud) cloudOdds = await window.cloud.fetchPreOdds("NBA", parsedList.map(g => g.id)); }catch(e){ cloudOdds = {}; }
+
     for(const g of parsedList){
       const gid = "g" + g.id;
       ensureGameBlock(gid); // safe no-op if the block already exists
-      applyGameData(gid, g.away, g.home, g.status, g.overUnder, g.seasonType, g.date);
+      applyGameData(gid, g.away, g.home, g.status, g.overUnder, g.seasonType, g.date, cloudOdds[g.id]);
     }
 
     $("lastUpdated").textContent = new Date().toLocaleTimeString();
