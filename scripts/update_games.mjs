@@ -58,7 +58,8 @@ for (const league of leagues) {
   }
 
   const withOdds = [];   // still pre-game AND has a total -> update pre_odds
-  const others = [];     // everything else -> never touch pre_odds
+  const preNoOdds = [];  // pre-game but no total posted yet
+  const others = [];     // started/finished games -> never touch pre_odds
   for (const ev of seen.values()) {
     const comp = (ev.competitions || [])[0];
     if (!comp) continue;
@@ -78,7 +79,7 @@ for (const league of leagues) {
     if (state === 'pre') {
       const ou = comp.odds && comp.odds[0] && Number(comp.odds[0].overUnder);
       if (ou && !isNaN(ou)) { withOdds.push({ ...base, pre_odds: ou, pre_odds_at: nowIso }); continue; }
-      others.push(base);
+      preNoOdds.push(base);
     } else {
       others.push({
         ...base,
@@ -89,8 +90,9 @@ for (const league of leagues) {
     }
   }
   await upsert(withOdds);
+  await upsert(preNoOdds);
   await upsert(others);
-  total += withOdds.length + others.length;
+  total += withOdds.length + preNoOdds.length + others.length;
   console.log(`[${league}] ${seen.size} games (${withOdds.length} with pre-game odds)`);
 }
 console.log(`Done: ${total} rows`);
