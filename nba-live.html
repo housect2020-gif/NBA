@@ -340,7 +340,7 @@
     /* Chrome (and most browsers) strip background colors by default when
        printing/saving to PDF, even though everything else renders as
        shown — this is what was washing out the yellow Avg Q1-3 cells,
-       pink T=35min cells, green Total cells, and header shading. This
+       pink T=42min cells, green Total cells, and header shading. This
        forces the browser to keep them, matching the on-screen colors
        exactly rather than an approximation. */
     *{
@@ -374,8 +374,8 @@
         <col style="width:5%">   <!-- Q2 -->
         <col style="width:5%">   <!-- Q3 -->
         <col style="width:6%">   <!-- Avg Q1-3 -->
-        <col style="width:5.5%"> <!-- Q4=5 min -->
-        <col style="width:6.5%"> <!-- T=43 min -->
+        <col style="width:5.5%"> <!-- Q4=6 min -->
+        <col style="width:6.5%"> <!-- T=42 min -->
         <col style="width:5%">   <!-- Q4 -->
         <col style="width:7%">   <!-- Total -->
         <col style="width:7%">   <!-- O/U -->
@@ -391,7 +391,7 @@
       <tr class="hdr-row" id="hdrRow">
         <td class="rownum">1</td>
         <td>Team</td><td>Q1</td><td>Q2</td><td>Q3</td><td>Avg Q1-3</td>
-        <td>Q4=5 min</td><td>T=43 min</td><td>Q4</td><td>Total</td>
+        <td>Q4=6 min</td><td>T=42 min</td><td>Q4</td><td>Total</td>
         <td>O/U</td><td>Odds</td><td>Diff.</td><td>Suggested Pick</td>
       </tr>
       <tbody id="gamesBody"></tbody>
@@ -404,8 +404,8 @@
       <table>
         <thead><tr>
           <th>Date</th><th>Game</th><th>Type</th>
-          <th>Pre-game O/U</th><th>Your odds at Q4 5:00</th><th>Final total</th>
-          <th>Final vs pre-game</th><th>Final vs 5:00 odds</th><th>Pick @5:00 PPM</th><th>Pick @5:00 Cons.</th>
+          <th>Pre-game O/U</th><th>Your odds at Q4 6:00</th><th>Final total</th>
+          <th>Final vs pre-game</th><th>Final vs 6:00 odds</th><th>Pick @6:00 PPM</th><th>Pick @6:00 Cons.</th>
           <th>Proj. away</th><th>Proj. home</th><th>Proj. total</th>
         </tr></thead>
         <tbody id="histBody"></tbody>
@@ -414,7 +414,7 @@
     <div class="hist-actions">
       <button class="refresh" id="histExportBtn">Export CSV</button>
       <button class="refresh" id="histClearBtn">Clear history</button>
-      <span class="hist-note">Saved in this browser only. Games are recorded only while this page is open (pre-game line, your Q4 5:00 odds, projections at 5:00, final total). Clearing your browser's site data erases it.</span>
+      <span class="hist-note">Saved in this browser only. Games are recorded only while this page is open (pre-game line, your Q4 6:00 odds, projections at 6:00, final total). Clearing your browser's site data erases it.</span>
     </div>
   </details>
 
@@ -474,7 +474,7 @@ function rebuildTableHeader(){
   let hdrHtml = `
     <td class="rownum">1</td>
     <td>Team</td><td>Q1</td><td>Q2</td><td>Q3</td><td>Avg Q1-3</td>
-    <td>Q4=5 min</td><td>T=43 min</td><td>Q4</td>
+    <td>Q4=6 min</td><td>T=42 min</td><td>Q4</td>
   `;
   for(let n=1;n<=extraOTCount;n++){ hdrHtml += `<td>Q${4+n}</td>`; }
   hdrHtml += `
@@ -686,7 +686,7 @@ function makeGameRowsHtml(gid){
       <td class="formula" id="${gid}-I3">–</td>
       <td>
         <select id="${gid}-J3" class="light-yellow">
-          ${Array.from({length:48}, (_,i)=>i+1).map(n=>`<option value="${n}"${n===5?" selected":""}>${n}</option>`).join("")}
+          ${Array.from({length:48}, (_,i)=>i+1).map(n=>`<option value="${n}"${n===6?" selected":""}>${n}</option>`).join("")}
         </select>
       </td>
       <td class="formula fit-line" id="${gid}-K3">–</td>
@@ -862,8 +862,8 @@ function rebuildK5Options(gid, center, preferredValue){
 
 // Required PPM + the resulting picks (both formulas) — live-only, always
 // computed fresh on every poll. K4 = (K5 - I5) / J3 conceptually, but
-// using the frozen T=35min base (g2+g3) instead of the live running
-// total. M5 three-tier logic: J3<=5 uses a flat 4.60 PPM threshold; J3
+// using the frozen T=42min base (g2+g3) instead of the live running
+// total. M5 three-tier logic: J3<=6 uses a flat 4.60 PPM threshold; J3
 // 6-39 uses clear-cut 4.20/5.20 extremes with a self-referential pace
 // tiebreaker in between; J3>=40 or J3<=0 is out of range. Consensus =
 // average of E5/G5/L4 vs K5.
@@ -880,11 +880,11 @@ function rebuildK5Options(gid, center, preferredValue){
 // NBA PPM thresholds — ESTIMATES, not backtested. Derived by scaling the
 // WNBA values (4.60 / 4.20 / 5.20) by the pace ratio, NBA ~4.75 combined
 // points/min vs WNBA ~4.25 (about x1.12). Replace after real NBA games.
-const NBA_PPM_FLAT  = 5.15; // J3<=5: Over if required PPM <= this
-const NBA_PPM_OVER  = 4.70; // J3 6-47: clear Over at or below
-const NBA_PPM_UNDER = 5.80; // J3 6-47: clear Under at or above
-// Q4 snapshot is at 5:00 left = 7 of 12 minutes played; scale to a full quarter.
-const Q4_SNAPSHOT_SCALE = 12/7;
+const NBA_PPM_FLAT  = 5.15; // J3<=6: Over if required PPM <= this
+const NBA_PPM_OVER  = 4.70; // J3 7-47: clear Over at or below
+const NBA_PPM_UNDER = 5.80; // J3 7-47: clear Under at or above
+// Q4 snapshot is at 6:00 left = 6 of 12 minutes played; scale to a full quarter.
+const Q4_SNAPSHOT_SCALE = 12/6;
 
 function computeDecision(k5, g2, g3, j3, e5, g5, l4){
   if(k5 === null) return { k4raw: null, m5Ppm: "", m5Consensus: "" };
@@ -892,7 +892,7 @@ function computeDecision(k5, g2, g3, j3, e5, g5, l4){
   let m5Ppm;
   if(j3 >= 48 || j3 <= 0){
     m5Ppm = "";
-  } else if(j3 <= 5){
+  } else if(j3 <= 6){
     m5Ppm = requiredPPM <= NBA_PPM_FLAT ? "Over" : "Under";
   } else if(requiredPPM <= NBA_PPM_OVER){
     m5Ppm = "Over";
@@ -910,8 +910,8 @@ function computeDecision(k5, g2, g3, j3, e5, g5, l4){
 // Row 5 (B5-G5) now uses NBA numbers (12-min quarters, 48-min game).
 // L4/J3 range use 48 minutes; M4 uses F4<=15. PPM thresholds and the M3
 // multiplier are NBA estimates (see NBA_PPM_* and Q4_SNAPSHOT_SCALE).
-// Set false to blank all prediction cells (L4, M3, M4, M5, K4). Raw data (Q1-Q4, OT, totals, the Q4=5min
-// snapshot F, T=35 G, odds, J4/K5) all keep working.
+// Set false to blank all prediction cells (L4, M3, M4, M5, K4). Raw data (Q1-Q4, OT, totals, the Q4=6min
+// snapshot F, T=42 G, odds, J4/K5) all keep working.
 // Set to true once NBA formulas are put in recalcGame / computeDecision.
 const FORMULAS_READY = true;
 
@@ -961,7 +961,7 @@ function recalcGame(gid){
   eg(gid,"K3").textContent = `${round0(sumQ13)} (Avg: ${avgRounded}) = ${combined}`;
 
   // L4 = MROUND((G2+G3)*(48/(48-J3)), 0.5)
-  const J3 = Number(eg(gid,"J3").value) || 5;
+  const J3 = Number(eg(gid,"J3").value) || 6;
   const timeLeftDenom = 48 - J3;
   const L4 = timeLeftDenom !== 0 ? mround((G2+G3)*(48/timeLeftDenom), 0.5) : NaN;
   eg(gid,"L4").textContent = fmt(L4, 1);
@@ -971,7 +971,7 @@ function recalcGame(gid){
   const C5 = (C4/12)*48;
   const D5 = (D4/12)*48;
   const E5 = (B5+C5+D5)/3;
-  const F5 = (F4/5)*48;
+  const F5 = (F4/6)*48;
   const validQtrs = [B5,C5,D5].filter(v => !isNaN(v)).length;
   const G5 = (B5+C5+D5 + ((F4*2)/12)*48) / (validQtrs + 1);
   const I5 = I2+I3;
@@ -1032,7 +1032,7 @@ function recalcGame(gid){
   const L3 = K5 === null ? "–" : fmt(Math.abs(sumQ13 - K5), 1);
   eg(gid,"L3").textContent = L3;
 
-  // Auto-capture K5 the first time the real Q4=5:00 snapshot is
+  // Auto-capture K5 the first time the real Q4=6:00 snapshot is
   // confirmed (st.q4Snapshot.away !== null) — same readiness check that
   // protects the F2/F3 backfill from the premature-freeze bug we found
   // earlier, so this can't grab a still-moving value from before the
@@ -1050,7 +1050,7 @@ function recalcGame(gid){
   const odds5minEl = eg(gid, "oddsAt5min");
   if(odds5minEl){
     odds5minEl.innerHTML = st.oddsAt5min !== null
-      ? `5min Odds<span class="odds-5min-value">${fmt(st.oddsAt5min, 1)}</span>`
+      ? `6min Odds<span class="odds-5min-value">${fmt(st.oddsAt5min, 1)}</span>`
       : "";
   }
 
@@ -1058,7 +1058,7 @@ function recalcGame(gid){
   // Uses only COMPLETED quarters among Q1-Q3 (a quarter in progress
   // would drag the average down):
   //   A = average points per completed quarter x 4 (full-game pace)
-  // Once the Q4 5:00 snapshot is in, B = T=43 pace scaled to the full
+  // Once the Q4 6:00 snapshot is in, B = T=42 pace scaled to the full
   // game (G x 48/(48-J3)), and the projection is the average of A and B.
   // Before the snapshot only A is used. Shown on the "Projected final" row.
   const stNow = gameState[gid] || {};
@@ -1072,7 +1072,7 @@ function recalcGame(gid){
     if(stNow.q4Snapshot && stNow.q4Snapshot.away !== null && J3 > 0 && J3 < 48){
       projAway = (projAway + G2 * (48 / (48 - J3))) / 2;
       projHome = (projHome + G3 * (48 / (48 - J3))) / 2;
-      projMethod = "avg of quarter pace and T=43 pace";
+      projMethod = "avg of quarter pace and T=42 pace";
     }
   }
   const projTotal = projAway === null ? null : projAway + projHome;
@@ -1083,7 +1083,7 @@ function recalcGame(gid){
       : `<span class="proj-title">Current game</span><b>${eg(gid,"awayName").textContent}</b> ${fmt(projAway,1)} &nbsp;·&nbsp; <b>${eg(gid,"homeName").textContent}</b> ${fmt(projHome,1)} &nbsp;·&nbsp; <b>Total ${fmt(projTotal,1)}</b><span class="proj-note">(${projMethod})</span>`;
   }
 
-  // ---- History: record the 5:00 odds + projections once, final total at the end
+  // ---- History: record the 6:00 odds + projections once, final total at the end
   if(st.oddsAt5min !== null && st.oddsAt5min !== undefined && st.q4Snapshot.away !== null){
     updateHistory(gid, cur => {
       const patch = { odds5min: st.oddsAt5min };
@@ -1143,13 +1143,13 @@ function recalcGame(gid){
   // whatever G2/G3/J3/K5 currently are (no locking/freezing mechanism;
   // that was tried and removed since it wasn't earning its complexity).
   // G2/G3 naturally evolve from "score so far" during Q1-Q3 into the
-  // true T=35min snapshot once Q4 hits 5:00, so K4/M5 are meaningful
+  // true T=42min snapshot once Q4 hits 6:00, so K4/M5 are meaningful
   // the whole game, not just from Q4 on. See computeDecision above
   // (module scope) for the shared formula.
 
   const liveNow = computeDecision(K5, G2, G3, J3, E5, G5, L4);
 
-  // Freeze at the Q4 5:00 mark: once the 5:00 snapshot is confirmed, K4/M5
+  // Freeze at the Q4 6:00 mark: once the 6:00 snapshot is confirmed, K4/M5
   // keep the result computed at that moment. They are recomputed (and
   // frozen again) only if K5 -- or the J3 minutes-left dropdown -- is
   // changed afterwards. Before the snapshot they stay live.
@@ -1162,7 +1162,7 @@ function recalcGame(gid){
       st.m5Frozen = { k5: K5, j3: J3, res: liveNow, changed: fz.k5 !== null };
     }
     live = st.m5Frozen.res;
-    stage = st.m5Frozen.changed ? "K5 CHANGED" : "AT 5:00";
+    stage = st.m5Frozen.changed ? "K5 CHANGED" : "AT 6:00";
     if(!st.m5Frozen.changed && K5 !== null){
       updateHistory(gid, cur => cur.pick5Ppm !== undefined ? null : {
         pick5Ppm: live.m5Ppm || null, pick5Cons: live.m5Consensus || null
@@ -1181,7 +1181,7 @@ function recalcGame(gid){
   if(live.k4raw === null){
     eg(gid,"K4").innerHTML = "–";
   } else {
-    eg(gid,"K4").innerHTML = k4Span(live.k4raw, live.m5Ppm, stage === "LIVE" ? "LIVE PPM" : (stage === "AT 5:00" ? "PPM @ 5:00" : "PPM · K5 CHANGED"));
+    eg(gid,"K4").innerHTML = k4Span(live.k4raw, live.m5Ppm, stage === "LIVE" ? "LIVE PPM" : (stage === "AT 6:00" ? "PPM @ 6:00" : "PPM · K5 CHANGED"));
   }
 
   function m5Span(pick, label){
@@ -1198,7 +1198,7 @@ function recalcGame(gid){
   if(live.m5Ppm === "" && live.m5Consensus === ""){
     eg(gid,"M5").innerHTML = "–";
   } else {
-    const pickLbl = stage === "LIVE" ? "LIVE PICK" : (stage === "AT 5:00" ? "PICK @ 5:00" : "PICK · K5 CHANGED");
+    const pickLbl = stage === "LIVE" ? "LIVE PICK" : (stage === "AT 6:00" ? "PICK @ 6:00" : "PICK · K5 CHANGED");
     const parts = [m5Span(live.m5Ppm, `${pickLbl} (PPM)`), m5Span(live.m5Consensus, `${pickLbl} (CONSENSUS)`)];
     eg(gid,"M5").innerHTML = parts.filter(p => p).join("<br>") || "–";
   }
@@ -1251,11 +1251,11 @@ function applyGameData(gid, away, home, status, overUnder, seasonType, gameDateI
   eg(gid,"H2").value = awayQ4Live;
   eg(gid,"H3").value = homeQ4Live;
 
-  // F column: live Q4 score (same as H) until the clock hits <=5:00 remaining,
+  // F column: live Q4 score (same as H) until the clock hits <=6:00 remaining,
   // at which point it freezes and stops updating for the rest of the game.
   if(period === 4 && state === "in"){
     const remaining = parseClockRemaining(status.clock);
-    if(remaining !== null && remaining <= 5 && st.q4Snapshot.away === null && !st.backfillAttempted){
+    if(remaining !== null && remaining <= 6 && st.q4Snapshot.away === null && !st.backfillAttempted){
       // Always reconstruct from real play-by-play, never grab whatever the
       // live score happens to be at this exact poll — the live score can
       // be off by a play depending on 5s-polling timing, which used to
@@ -1414,11 +1414,11 @@ function scoreboardUrls(){
   return attempts;
 }
 
-// Reconstructs the Q4 score exactly as it stood when the clock hit 5:00
+// Reconstructs the Q4 score exactly as it stood when the clock hit 6:00
 // remaining, using ESPN's per-game scoringPlays feed. Needed when the page
 // loads (or first sees this game) after that moment has already passed —
 // the scoreboard endpoint only ever gives the CURRENT score, not history.
-// allowRetry=true (the live, just-crossed-5:00 case) means: if ESPN's
+// allowRetry=true (the live, just-crossed-6:00 case) means: if ESPN's
 // play-by-play hasn't published a qualifying play yet (a brief lag is
 // normal for a still-live game), don't commit to the fallback value —
 // leave the snapshot unset and retry on the next poll instead, since the
@@ -1460,14 +1460,14 @@ async function backfillQ4Snapshot(gid, away, home, allowRetry){
       // bail out rather than writing into a stale/disconnected game.
       if(gameState[gid] !== st) return;
 
-      // Find the last scoring play at/before the 5:00 mark of Q4.
+      // Find the last scoring play at/before the 6:00 mark of Q4.
       let candidate = null;
       for(const p of scoringPlays){
         const per = p.period && p.period.number;
         if(per !== 4) continue;
         const remaining = parseClockRemaining(p.clock && p.clock.displayValue);
         if(remaining === null) continue;
-        if(remaining >= 5 && p.awayScore !== undefined && p.homeScore !== undefined){
+        if(remaining >= 6 && p.awayScore !== undefined && p.homeScore !== undefined){
           candidate = p;
         }
       }
@@ -1524,7 +1524,7 @@ async function backfillQ4Snapshot(gid, away, home, allowRetry){
   st.backfillAttempted = false;
 }
 
-// Reconstructs the Q4 score exactly as it stood when the clock hit 5:00
+// Reconstructs the Q4 score exactly as it stood when the clock hit 6:00
 // remaining, using ESPN's own play-by-play/scoringPlays feed. This used to
 // be a fallback for a WNBA.com-based primary lookup, but that endpoint
 // (cdn.wnba.com/.../playbyplay_<id>.json) has been discontinued — as of
@@ -1533,7 +1533,7 @@ async function backfillQ4Snapshot(gid, away, home, allowRetry){
 // now the only source for this, which also means no more ScrapingBee
 // dependency (and no exposed API key) for the whole site.
 // gids currently showing simulated (not real) data, mapped to an optional
-// explicit Q4=5min snapshot override ({away, home}) — see simulateGames
+// explicit Q4=6min snapshot override ({away, home}) — see simulateGames
 // below. Used to skip the real-ESPN Q4 backfill attempt for them, since a
 // fake game ID can never match a real ESPN event.
 const simulatedGids = new Map();
@@ -1544,7 +1544,7 @@ async function runQ4Backfill(gid, away, home, allowRetry){
     const st = gameState[gid];
     if(st){
       if(override){
-        // A real, known Q4=5min snapshot was supplied (e.g. reconstructing
+        // A real, known Q4=6min snapshot was supplied (e.g. reconstructing
         // an actual past game from a saved export) — use it exactly,
         // rather than the fallback guess below.
         st.q4Snapshot.away = override.away;
