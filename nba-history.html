@@ -134,7 +134,9 @@ function render(){
   const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0) / arr.length : null;
   const pickHits = key => {
     const d = VIEW.filter(r => r[key] && r.my5 != null && r.vs5 && r.vs5 !== "Push");
-    return d.length ? `${d.filter(r => r[key] === r.vs5).length} / ${d.length}` : "–";
+    if(!d.length) return "–";
+    const hit = d.filter(r => r[key] === r.vs5).length;
+    return `${hit} / ${d.length} <span style="font-size:14px;color:#5f6368">(${Math.round(hit / d.length * 100)}%)</span>`;
   };
   $("cards").innerHTML = [
     ["Games", VIEW.length, ""],
