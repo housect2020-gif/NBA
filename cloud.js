@@ -22,6 +22,8 @@
   var settleAuth; var authSettled = new Promise(function (r) { settleAuth = r; });
   var pending = new Map();
   var timer = null;
+  var seen = {};            // key -> updated_at last known (for live sync)
+  var approvedWaiters = [];
 
   // ---- hook localStorage writes so synced keys are queued for the cloud ----
   var rawSet = Storage.prototype.setItem;
@@ -51,6 +53,7 @@
     });
     var dels = items.filter(function (e) { return e[1] === null; }).map(function (e) { return e[0]; });
     try {
+      ups.forEach(function (u) { seen[u.key] = u.updated_at; });
       if (ups.length) {
         var r1 = await sb.from('user_data').upsert(ups, { onConflict: 'user_id,key' });
         if (r1.error) throw r1.error;
@@ -90,10 +93,10 @@
   }
 
   async function pull() {
-    var res = await sb.from('user_data').select('key,value');
+    var res = await sb.from('user_data').select('key,value,updated_at');
     if (res.error) { console.warn('[cloud] load failed', res.error); return; }
     var cloud = {};
-    (res.data || []).forEach(function (r) { cloud[r.key] = r.value && r.value.v; });
+    (res.data || []).forEach(function (r) { cloud[r.key] = r.value && r.value.v; seen[r.key] = r.updated_at; });
     var changed = false;
 
     Object.keys(cloud).forEach(function (k) {
@@ -117,6 +120,36 @@
       try { sessionStorage.removeItem('cloud_reloaded'); } catch (e) {}
     }
   }
+
+
+  // ---- live sync: every few seconds, look for entries changed on another device ----
+  var POLL_MS = 8000;
+  async function poll() {
+    if (!syncOn || !sb || !user || document.hidden) return;
+    try {
+      var since = new Date(Date.now() - 2 * 86400000).toISOString();
+      var r = await sb.from('user_data').select('key,updated_at').gte('updated_at', since);
+      if (r.error || !r.data) return;
+      var changed = r.data.filter(function (x) {
+        return SYNC_RE.test(x.key) && seen[x.key] !== x.updated_at && !pending.has(x.key);
+      }).map(function (x) { return x.key; });
+      if (!changed.length) return;
+      var v = await sb.from('user_data').select('key,value,updated_at').in('key', changed);
+      if (v.error || !v.data) return;
+      var applied = [];
+      v.data.forEach(function (row) {
+        seen[row.key] = row.updated_at;
+        var val = row.value && row.value.v;
+        if (typeof val !== 'string' || pending.has(row.key)) return;
+        var local = lsGet(row.key);
+        var next = row.key === HISTORY_KEY ? mergeHistory(val, local) : val;
+        if (next !== local) { rawSet.call(window.localStorage, row.key, next); applied.push(row.key); }
+      });
+      if (applied.length) window.dispatchEvent(new CustomEvent('cloud-keys', { detail: { keys: applied } }));
+    } catch (e) { console.warn('[cloud] live sync check failed', e); }
+  }
+  setInterval(poll, POLL_MS);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
 
   // ---- shared pre-game odds written by the server job ----
   async function fetchPreOdds(league, ids) {
@@ -273,6 +306,7 @@
       if (profile && profile.approved) {
         state = 'approved';
         render();
+        approvedWaiters.splice(0).forEach(function (f) { f(); });
         await pull();
         syncOn = true;
         flush();
@@ -299,6 +333,8 @@
 
   window.cloud = {
     fetchPreOdds: fetchPreOdds,
+    whenApproved: function () { return state === 'approved' ? Promise.resolve() : new Promise(function (res) { approvedWaiters.push(res); }); },
+    get sb() { return sb; },
     get state() { return state; },
     get user() { return user; }
   };

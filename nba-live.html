@@ -82,8 +82,20 @@
   table{
     border-collapse:collapse;
     width:100%;
+    min-width:820px; /* narrow screens scroll sideways instead of squashing the headers */
     table-layout:fixed;
     font-size:11px;
+  }
+  .hist-panel table{ min-width:0; }
+  .hdr-row td{
+    background:#f7f8fa;
+    font-weight:700;
+    color:#3c4043;
+    font-size:11px;
+    white-space:nowrap;
+    word-break:normal;
+    overflow-wrap:normal;
+    padding:3px 2px;
   }
   th,td{
     border:1px solid var(--grid-line);
@@ -332,6 +344,7 @@
     .no-print{ display:none !important; }
     body{ background:#fff; margin:0; }
     .sheet-scroll{ border:none; overflow:visible; }
+    table{ min-width:0 !important; }
     table{ font-size:10px; }
     tr{ break-inside:avoid; page-break-inside:avoid; }
     thead, .colhead, .hdr-row{ break-after:avoid; }
@@ -356,7 +369,7 @@
 
   <div class="topbar">
     <h1>NBA Live Scores — Score Sheet</h1>
-    <a href="nba-records.html" style="color:#1a5cff; text-decoration:none; font-size:13px; font-weight:600;">Schedule &amp; Records →</a>
+    <span style="display:inline-flex;gap:14px;flex-wrap:wrap;"><a href="nba-records.html" style="color:#1a5cff; text-decoration:none; font-size:13px; font-weight:600;">Schedule &amp; Records →</a><a href="nba-history.html" style="color:#1a5cff; text-decoration:none; font-size:13px; font-weight:600;">History →</a></span>
     <div class="status" id="statusPill">
       <span class="dot" id="statusDot"></span>
       <span id="statusText">Connecting…</span>
@@ -373,15 +386,15 @@
         <col style="width:5%">   <!-- Q1 -->
         <col style="width:5%">   <!-- Q2 -->
         <col style="width:5%">   <!-- Q3 -->
-        <col style="width:6%">   <!-- Avg Q1-3 -->
-        <col style="width:5.5%"> <!-- Q4=6 min -->
+        <col style="width:6.5%">  <!-- Avg Q1-3 -->
+        <col style="width:6.5%"> <!-- Q4=6 min -->
         <col style="width:6.5%"> <!-- T=42 min -->
         <col style="width:5%">   <!-- Q4 -->
         <col style="width:7%">   <!-- Total -->
         <col style="width:7%">   <!-- O/U -->
-        <col style="width:17.5%"> <!-- Odds -->
-        <col style="width:11%">  <!-- Diff. -->
-        <col style="width:13.5%"><!-- Suggested Pick -->
+        <col style="width:17%"> <!-- Odds -->
+        <col style="width:10.5%"> <!-- Diff. -->
+        <col style="width:13%">  <!-- Suggested Pick -->
       </colgroup>
       <tr class="colhead" id="colheadRow">
         <th class="corner"></th>
@@ -451,8 +464,8 @@ function rebuildTableHeader(){
     <col style="width:5%">
     <col style="width:5%">
     <col style="width:5%">
-    <col style="width:6%">
-    <col style="width:5.5%">
+    <col style="width:6.5%">
+    <col style="width:6.5%">
     <col style="width:6.5%">
     <col style="width:5%">
   `;
@@ -460,9 +473,9 @@ function rebuildTableHeader(){
   colHtml += `
     <col style="width:7%">
     <col style="width:7%">
-    <col style="width:17.5%">
-    <col style="width:11%">
-    <col style="width:13.5%">
+    <col style="width:17%">
+    <col style="width:10.5%">
+    <col style="width:13%">
   `;
   $("mainColgroup").innerHTML = colHtml;
 
@@ -1997,6 +2010,32 @@ document.getElementById("histClearBtn").addEventListener("click", () => {
   }
 });
 renderHistory();
+
+// Live sync: when cloud.js pulls entries another device saved, show them here.
+window.addEventListener("cloud-keys", e => {
+  const order = ["K5manual","K5","J5","J3"];
+  const items = [];
+  (e.detail.keys || []).forEach(k => {
+    if(k === HISTORY_KEY){ renderHistory(); return; }
+    const m = k.match(/^nba_(K5manual|K5|J5|J3)_(.+)$/);
+    if(m) items.push({ suffix: m[1], gid: m[2] });
+  });
+  items.sort((a,b) => order.indexOf(a.suffix) - order.indexOf(b.suffix));
+  const gids = new Set();
+  items.forEach(({suffix, gid}) => {
+    const el = eg(gid, suffix);
+    if(!el || document.activeElement === el) return;   // never overwrite what you're typing
+    const v = loadField(gid, suffix);
+    if(v === null) return;
+    const st = gameState[gid];
+    if(suffix === "K5manual"){ el.value = v; if(st) st.k5Source = "manual"; }
+    else if(suffix === "K5"){
+      if([...el.options].some(o => o.value === v)){ el.value = v; if(st) st.k5Source = "select"; }
+    } else { el.value = v; }
+    gids.add(gid);
+  });
+  gids.forEach(g => recalcGame(g));
+});
 
 fetchScores();
 </script>
