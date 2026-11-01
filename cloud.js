@@ -8,17 +8,22 @@
 (function () {
   'use strict';
 
+  // Folder this file lives in (the hub's home page), used for the "All sports" link.
+  var HUB = (document.currentScript && document.currentScript.src) ? document.currentScript.src.replace(/cloud\.js.*$/, '') : '/';
   var SUPABASE_URL = 'https://owobaxyhkrdpgxclewzp.supabase.co';
   var SUPABASE_KEY = 'sb_publishable_q2nOOuJTNJWPjPIUKCO0pg_2Ta3PteP';
 
   // localStorage keys that follow the person across browsers. Team-points and
   // records caches are re-derived from ESPN, so they stay local.
-  var SYNC_RE = /^nba_(?!teamPts_|records_)/;
-  var HISTORY_KEY = 'nba_history_v1';
+  // Keys that follow the person across browsers (all four sports share one login).
+  var SYNC_RE = /^(?:(?:nba|wnba)_(?!teamPts_|records_|snap_)|mlb_site_picks_v1$|nfl_site_picks_v1$)/;
+  var HISTORY_RE = /_history_v1$/;     // object keyed by game id -> merged field by field
+  var PICKS_RE = /_site_picks_v1$/;    // array of {id,...} -> merged once per browser, then the cloud copy wins
 
   var sb = null, user = null, profile = null;
   var state = 'loading'; // loading | out | pending | approved | error
   var syncOn = false;
+  var blockWrites = false;   // true while we're about to reload after merging, so the page can't overwrite the merge
   var settleAuth; var authSettled = new Promise(function (r) { settleAuth = r; });
   var pending = new Map();
   var timer = null;
@@ -30,10 +35,12 @@
   var rawRemove = Storage.prototype.removeItem;
   function isLocal(self) { try { return self === window.localStorage; } catch (e) { return false; } }
   Storage.prototype.setItem = function (k, v) {
+    if (blockWrites && isLocal(this) && SYNC_RE.test(k)) return;
     rawSet.call(this, k, v);
     if (syncOn && isLocal(this) && SYNC_RE.test(k)) queue(k, String(v));
   };
   Storage.prototype.removeItem = function (k) {
+    if (blockWrites && isLocal(this) && SYNC_RE.test(k)) return;
     rawRemove.call(this, k);
     if (syncOn && isLocal(this) && SYNC_RE.test(k)) queue(k, null);
   };
@@ -92,6 +99,27 @@
     return JSON.stringify(out);
   }
 
+  function metaKey(k) { return 'cloudmeta_' + (user ? user.id : '') + '_' + k; }
+  function mergePicks(cloudStr, localStr, firstTime) {
+    if (!firstTime) return cloudStr;
+    var c = [], l = [];
+    try { c = JSON.parse(cloudStr || '[]') || []; } catch (e) {}
+    try { l = JSON.parse(localStr || '[]') || []; } catch (e) {}
+    var ids = {};
+    c.forEach(function (p) { ids[p && p.id] = true; });
+    return JSON.stringify(c.concat(l.filter(function (p) { return p && !ids[p.id]; })));
+  }
+  function mergeFor(k, cloudStr, localStr) {
+    if (HISTORY_RE.test(k)) return mergeHistory(cloudStr, localStr);
+    if (PICKS_RE.test(k)) {
+      var first = lsGet(metaKey(k)) !== '1';
+      var out = mergePicks(cloudStr, localStr, first);
+      rawSet.call(window.localStorage, metaKey(k), '1');
+      return out;
+    }
+    return cloudStr;
+  }
+
   async function pull() {
     var res = await sb.from('user_data').select('key,value,updated_at');
     if (res.error) { console.warn('[cloud] load failed', res.error); return; }
@@ -102,25 +130,31 @@
     Object.keys(cloud).forEach(function (k) {
       if (!SYNC_RE.test(k) || typeof cloud[k] !== 'string') return;
       var local = lsGet(k);
-      var next = k === HISTORY_KEY ? mergeHistory(cloud[k], local) : cloud[k];
+      var next = mergeFor(k, cloud[k], local);
       if (next !== local) { rawSet.call(window.localStorage, k, next); changed = true; }
       if (next !== cloud[k]) queue(k, next);
     });
     // anything this browser has that the cloud doesn't -> upload it once
     lsKeys().forEach(function (k) {
-      if (SYNC_RE.test(k) && !(k in cloud)) queue(k, lsGet(k));
+      if (SYNC_RE.test(k) && !(k in cloud)) {
+        queue(k, lsGet(k));
+        if (PICKS_RE.test(k)) rawSet.call(window.localStorage, metaKey(k), '1');
+      }
     });
 
     var flag = null;
     try { flag = sessionStorage.getItem('cloud_reloaded'); } catch (e) {}
-    if (changed && flag !== '1') {
+    var willReload = changed && flag !== '1';
+    if (willReload) blockWrites = true;
+    // Upload anything merged above BEFORE the reload, so nothing is lost.
+    if (pending.size) { clearTimeout(timer); await flush(); }
+    if (willReload) {
       try { sessionStorage.setItem('cloud_reloaded', '1'); } catch (e) {}
-      location.reload(); // re-render the sheet with the saved entries
+      location.reload(); // re-render the page with the saved entries
     } else if (!changed) {
       try { sessionStorage.removeItem('cloud_reloaded'); } catch (e) {}
     }
   }
-
 
   // ---- live sync: every few seconds, look for entries changed on another device ----
   var POLL_MS = 8000;
@@ -142,10 +176,18 @@
         var val = row.value && row.value.v;
         if (typeof val !== 'string' || pending.has(row.key)) return;
         var local = lsGet(row.key);
-        var next = row.key === HISTORY_KEY ? mergeHistory(val, local) : val;
+        var next = HISTORY_RE.test(row.key) ? mergeHistory(val, local) : val;
         if (next !== local) { rawSet.call(window.localStorage, row.key, next); applied.push(row.key); }
       });
-      if (applied.length) window.dispatchEvent(new CustomEvent('cloud-keys', { detail: { keys: applied } }));
+      if (applied.length) {
+        var ev = new CustomEvent('cloud-keys', { detail: { keys: applied }, cancelable: true });
+        var go = window.dispatchEvent(ev);
+        // Pages without their own live-update code (MLB/NFL picks) just reload to show the change.
+        if (go && window.CLOUD_RELOAD_ON_REMOTE) {
+          var a = document.activeElement;
+          if (!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) location.reload();
+        }
+      }
     } catch (e) { console.warn('[cloud] live sync check failed', e); }
   }
   setInterval(poll, POLL_MS);
@@ -235,7 +277,8 @@
   function renderBar() {
     if (state !== 'approved') { bar.style.display = 'none'; return; }
     bar.style.display = 'flex';
-    bar.innerHTML = '<span>' + (saved ? '☁ saved' : '☁ offline — will retry') + ' · ' + esc(user && user.email) + '</span>' +
+    bar.innerHTML = '<a href="' + HUB + '" style="color:#1a73e8;text-decoration:none;font-weight:600">⌂ All sports</a>' +
+      '<span>' + (saved ? '☁ saved' : '☁ offline — will retry') + ' · ' + esc(user && user.email) + '</span>' +
       (profile && profile.is_admin ? '<button id="cbAdmin">Admin</button>' : '') +
       '<button id="cbOut">Sign out</button>';
     var o = document.getElementById('cbOut'); if (o) o.onclick = signOut;
