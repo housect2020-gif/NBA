@@ -17,6 +17,37 @@ const KEY = process.env.SUPABASE_SECRET_KEY;
 const DRY = process.env.DRY_RUN === '1';
 const LOCK_MINUTES = Number(process.env.LOCK_MINUTES || 60);
 const LOCK_LEAGUES = new Set(['NBA']);
+let TIER_COLS = true;   // turns off by itself if the lock_type column does not exist yet
+
+// Standing of each NBA team (rank by win %, then points differential) -> tier Good / Mid / Bad (thirds).
+// Saved with the lock so History can score the over/under rule by matchup type.
+async function nbaTiers() {
+  try {
+    const url = ESPN.replace('/apis/site/v2/', '/apis/v2/') + '/basketball/nba/standings';
+    const j = await getJson(url);
+    const rows = [];
+    for (const c of j.children || []) for (const e of (c.standings && c.standings.entries) || []) {
+      const st = n => { const x = (e.stats || []).find(y => y.name === n); return x ? Number(x.value) : null; };
+      const w = st('wins'), l = st('losses');
+      if (w == null || l == null || w + l === 0) continue;
+      const pf = st('avgPointsFor'), pa = st('avgPointsAgainst');
+      rows.push({ abbr: e.team.abbreviation, pct: w / (w + l), diff: pf != null && pa != null ? pf - pa : 0 });
+    }
+    if (rows.length < 20) return null;
+    rows.sort((a, b) => b.pct - a.pct || b.diff - a.diff);
+    const n = rows.length, third = Math.round(n / 3), map = new Map();
+    rows.forEach((r, i) => map.set(r.abbr, { rank: i + 1, tier: i < third ? 'G' : (i >= n - third ? 'B' : 'M') }));
+    return map;
+  } catch (e) { console.warn('standings unavailable: ' + e.message); return null; }
+}
+const TV = { G: 3, M: 2, B: 1 };
+function tierFields(tiers, awayAbbr, homeAbbr) {
+  if (!TIER_COLS || !tiers) return {};
+  const a = tiers.get(awayAbbr), h = tiers.get(homeAbbr);
+  if (!a || !h) return {};
+  const [hi, lo] = TV[a.tier] >= TV[h.tier] ? [a.tier, h.tier] : [h.tier, a.tier];
+  return { lock_away_rank: a.rank, lock_home_rank: h.rank, lock_type: hi + lo };
+}
 const leagues = (process.env.LEAGUES || 'NBA,WNBA,MLB,NFL').split(',').map(s => s.trim()).filter(Boolean);
 
 if (!DRY && (!URL_ || !KEY)) { console.error('Missing SUPABASE_URL or SUPABASE_SECRET_KEY'); process.exit(1); }
@@ -85,9 +116,15 @@ async function existingRows(league, ids) {
   const out = new Map();
   for (let i = 0; i < ids.length; i += 40) {
     const chunk = ids.slice(i, i + 40);
-    const q = `${URL_}/rest/v1/games?league=eq.${league}&game_id=in.(${chunk.join(',')})` +
-      `&select=game_id,lock_at,pre_odds,pre_odds_at,pre_favorite,pre_spread,rule_pick`;
-    const r = await fetch(q, { headers: { apikey: KEY, Authorization: `Bearer ${KEY}` } });
+    const mk = cols => `${URL_}/rest/v1/games?league=eq.${league}&game_id=in.(${chunk.join(',')})&select=${cols}`;
+    const base = 'game_id,lock_at,pre_odds,pre_odds_at,pre_favorite,pre_spread,rule_pick';
+    const hdr = { headers: { apikey: KEY, Authorization: `Bearer ${KEY}` } };
+    let r = await fetch(mk(TIER_COLS ? base + ',lock_type' : base), hdr);
+    if (!r.ok && TIER_COLS) {   // matchup columns not in the table yet -> keep locking, just without them
+      TIER_COLS = false;
+      console.warn(`[${league}] matchup columns not found - run the matchup SQL in Supabase to save rank/type. Locking continues without them.`);
+      r = await fetch(mk(base), hdr);
+    }
     if (!r.ok) { console.warn(`[${league}] lock lookup failed (HTTP ${r.status}) - locking skipped. Run the lock SQL in Supabase.`); return null; }
     const rows = await r.json();
     if (!Array.isArray(rows)) { console.warn(`[${league}] lock lookup returned an unexpected answer - locking skipped.`); return null; }
@@ -119,6 +156,7 @@ for (const league of leagues) {
 
   const existing = LOCK_LEAGUES.has(league) && seen.size ? await existingRows(league, [...seen.keys()]) : null;
   let locked = 0, lockedLate = 0;
+  const tiers = existing ? await nbaTiers() : null;
   const preRows = [];    // pre-game games (written in batches that share the same set of fields)
   const others = [];     // started/finished games -> never touch pre_odds
   for (const ev of seen.values()) {
@@ -152,6 +190,7 @@ for (const league of leagues) {
           row.lock_pick = row.rule_pick || null;
           row.lock_at = nowIso;
           row.lock_late = false;
+          Object.assign(row, tierFields(tiers, row.away, row.home));
           locked++;
         }
       }
@@ -172,6 +211,7 @@ for (const league of leagues) {
         row.lock_pick = ex.rule_pick || null;
         row.lock_at = ex.pre_odds_at || nowIso;
         row.lock_late = true;
+        Object.assign(row, tierFields(tiers, row.away, row.home));
         lockedLate++;
       }
       others.push(row);
