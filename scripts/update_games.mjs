@@ -17,7 +17,8 @@ const KEY = process.env.SUPABASE_SECRET_KEY;
 const DRY = process.env.DRY_RUN === '1';
 const LOCK_MINUTES = Number(process.env.LOCK_MINUTES || 60);
 const LOCK_LEAGUES = new Set(['NBA']);
-let TIER_COLS = true;   // turns off by itself if the lock_type column does not exist yet
+let TIER_COLS = true;
+let INJ_COLS = true;    // turns off by itself if the lock_injuries column does not exist yet   // turns off by itself if the lock_type column does not exist yet
 
 // Standing of each NBA team (rank by win %, then points differential) -> tier Good / Mid / Bad (thirds).
 // Saved with the lock so History can score the over/under rule by matchup type.
@@ -39,6 +40,108 @@ async function nbaTiers() {
     rows.forEach((r, i) => map.set(r.abbr, { rank: i + 1, tier: i < third ? 'G' : (i >= n - third ? 'B' : 'M') }));
     return map;
   } catch (e) { console.warn('standings unavailable: ' + e.message); return null; }
+}
+// Injury snapshot: who ESPN lists as Out / Day-To-Day for each team at lock time (the feed only shows the latest status).
+async function nbaInjuries() {
+  try {
+    const j = await getJson(ESPN + '/basketball/nba/injuries');
+    const map = new Map();
+    const fresh = Date.now() - 48 * 3600 * 1000;
+    for (const t of j.injuries || []) for (const i of t.injuries || []) {
+      const ab = i.athlete && i.athlete.team && i.athlete.team.abbreviation;
+      if (!ab) continue;
+      const e = map.get(ab) || { out: [], dtd: [], long: 0 };
+      const isFresh = !i.date || new Date(i.date).getTime() >= fresh;
+      const name = i.athlete.shortName || i.athlete.displayName;
+      let pid = null;
+      for (const l of i.athlete.links || []) { const mm = /\/id\/(\d+)\//.exec(l.href || ''); if (mm) { pid = mm[1]; break; } }
+      const who = { n: name, id: pid, p: i.athlete.position && i.athlete.position.abbreviation };
+      if (i.status === 'Out') { if (isFresh) e.out.push(who); else e.long++; }
+      else if (isFresh) e.dtd.push(who.n);
+      map.set(ab, e);
+    }
+    return map.size ? map : null;
+  } catch (e) { console.warn('injuries unavailable: ' + e.message); return null; }
+}
+// Who matters: a "core" player started at least half his games or plays 24+ minutes a game (needs 3+ games on file).
+function withImpact(e) {
+  return { ...e, out: e.out.map(o => {
+    const st = PLAYERS && o.id ? PLAYERS.get(String(o.id)) : null;
+    if (!st || st.gp < 3) return { ...o, core: null };
+    const mpg = st.min / st.gp, ppg = st.pts / st.gp, sr = st.starts / st.gp;
+    return { ...o, mpg: Math.round(mpg * 10) / 10, ppg: Math.round(ppg * 10) / 10, core: sr >= 0.5 || mpg >= 24 };
+  }) };
+}
+function injFields(inj, awayAbbr, homeAbbr) {
+  if (!INJ_COLS || !inj) return {};
+  const e0 = { out: [], dtd: [], long: 0 };
+  return { lock_injuries: JSON.stringify({ at: new Date().toISOString(), a: withImpact(inj.get(awayAbbr) || e0), h: withImpact(inj.get(homeAbbr) || e0) }) };
+}
+
+// ---------- player minutes / starts from finished games' box scores ----------
+let PLAYERS = null;     // Map playerId -> { gp, starts, min, pts }  (null until loaded / if the players table is missing)
+const hdr = () => ({ apikey: KEY, Authorization: `Bearer ${KEY}` });
+async function loadPlayers() {
+  try {
+    const r = await fetch(`${URL_}/rest/v1/players?league=eq.NBA&select=player_id,gp,starts,min,pts&limit=2000`, { headers: hdr() });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    if (!Array.isArray(rows)) return null;
+    return new Map(rows.map(x => [String(x.player_id), { gp: Number(x.gp), starts: Number(x.starts), min: Number(x.min), pts: Number(x.pts) }]));
+  } catch (e) { return null; }
+}
+// Adds up to MAX_BOXSCORES finished games per run (the first runs catch up on the season, newest games first).
+async function updatePlayers() {
+  const MAX = Number(process.env.MAX_BOXSCORES || 25);
+  let r = await fetch(`${URL_}/rest/v1/games?league=eq.NBA&state=eq.post&season_type=in.(2,3)&players_done=is.null&select=game_id&order=game_date.desc&limit=${MAX}`, { headers: hdr() });
+  if (!r.ok) { console.warn('players: games.players_done column or players table not found - run the players SQL in Supabase.'); return; }
+  const ids = (await r.json()).map(x => String(x.game_id));
+  if (!ids.length) { console.log('players: nothing new to add'); return; }
+  const add = new Map(), done = [];
+  for (const id of ids) {
+    try {
+      const j = await getJson(`${ESPN}/basketball/nba/summary?event=${id}`);
+      const teams = (j.boxscore && j.boxscore.players) || [];
+      if (!teams.length) continue;
+      for (const t of teams) {
+        const st = (t.statistics || [])[0]; if (!st) continue;
+        const labels = st.labels || [], iM = labels.indexOf('MIN'), iP = labels.indexOf('PTS');
+        for (const a of st.athletes || []) {
+          if (a.didNotPlay || !a.athlete || !a.stats || !a.stats.length || iM < 0) continue;
+          const min = parseFloat(a.stats[iM]); if (!(min > 0)) continue;
+          const pts = iP >= 0 ? (parseFloat(a.stats[iP]) || 0) : 0;
+          const k = String(a.athlete.id);
+          const e = add.get(k) || { player_id: k, name: a.athlete.displayName, team: t.team && t.team.abbreviation, pos: a.athlete.position && a.athlete.position.abbreviation, gp: 0, starts: 0, min: 0, pts: 0 };
+          e.gp++; e.starts += a.starter ? 1 : 0; e.min += min; e.pts += pts;
+          add.set(k, e);
+        }
+      }
+      done.push(id);
+    } catch (e) { console.warn(`players: ${id}: ${e.message}`); }
+  }
+  if (!done.length) return;
+  // add to what is already saved
+  const have = await (async () => {
+    const m = new Map();
+    const keys = [...add.keys()];
+    for (let i = 0; i < keys.length; i += 100) {
+      const rr = await fetch(`${URL_}/rest/v1/players?league=eq.NBA&player_id=in.(${keys.slice(i, i + 100).join(',')})&select=player_id,gp,starts,min,pts`, { headers: hdr() });
+      if (rr.ok) for (const x of await rr.json()) m.set(String(x.player_id), x);
+    }
+    return m;
+  })();
+  const rows = [...add.values()].map(e => {
+    const o = have.get(e.player_id) || { gp: 0, starts: 0, min: 0, pts: 0 };
+    return { league: 'NBA', ...e, gp: Number(o.gp) + e.gp, starts: Number(o.starts) + e.starts, min: Number(o.min) + e.min, pts: Number(o.pts) + e.pts, updated_at: new Date().toISOString() };
+  });
+  if (DRY) { console.log(`DRY players: ${rows.length} players from ${done.length} games`); return; }
+  const up = await fetch(`${URL_}/rest/v1/players?on_conflict=league,player_id`, {
+    method: 'POST', headers: { ...hdr(), 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(rows) });
+  if (!up.ok) { console.warn(`players: save failed HTTP ${up.status} ${await up.text()}`); return; }
+  const mk = await fetch(`${URL_}/rest/v1/games?league=eq.NBA&game_id=in.(${done.join(',')})`, {
+    method: 'PATCH', headers: { ...hdr(), 'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify({ players_done: true }) });
+  if (!mk.ok) console.warn(`players: could not mark games done HTTP ${mk.status}`);
+  console.log(`players: added ${done.length} games, ${rows.length} players`);
 }
 const TV = { G: 3, M: 2, B: 1 };
 function tierFields(tiers, awayAbbr, homeAbbr) {
@@ -119,7 +222,12 @@ async function existingRows(league, ids) {
     const mk = cols => `${URL_}/rest/v1/games?league=eq.${league}&game_id=in.(${chunk.join(',')})&select=${cols}`;
     const base = 'game_id,lock_at,pre_odds,pre_odds_at,pre_favorite,pre_spread,rule_pick';
     const hdr = { headers: { apikey: KEY, Authorization: `Bearer ${KEY}` } };
-    let r = await fetch(mk(TIER_COLS ? base + ',lock_type' : base), hdr);
+    let r = await fetch(mk(base + (TIER_COLS ? ',lock_type' : '') + (INJ_COLS ? ',lock_injuries' : '')), hdr);
+    if (!r.ok && INJ_COLS) {   // injuries column not in the table yet -> keep going without it
+      INJ_COLS = false;
+      console.warn(`[${league}] lock_injuries column not found - run the injuries SQL in Supabase to save injury snapshots.`);
+      r = await fetch(mk(base + (TIER_COLS ? ',lock_type' : '')), hdr);
+    }
     if (!r.ok && TIER_COLS) {   // matchup columns not in the table yet -> keep locking, just without them
       TIER_COLS = false;
       console.warn(`[${league}] matchup columns not found - run the matchup SQL in Supabase to save rank/type. Locking continues without them.`);
@@ -157,6 +265,8 @@ for (const league of leagues) {
   const existing = LOCK_LEAGUES.has(league) && seen.size ? await existingRows(league, [...seen.keys()]) : null;
   let locked = 0, lockedLate = 0;
   const tiers = existing ? await nbaTiers() : null;
+  const inj = existing ? await nbaInjuries() : null;
+  if (existing && !PLAYERS && URL_) PLAYERS = await loadPlayers();
   const preRows = [];    // pre-game games (written in batches that share the same set of fields)
   const others = [];     // started/finished games -> never touch pre_odds
   for (const ev of seen.values()) {
@@ -190,7 +300,7 @@ for (const league of leagues) {
           row.lock_pick = row.rule_pick || null;
           row.lock_at = nowIso;
           row.lock_late = false;
-          Object.assign(row, tierFields(tiers, row.away, row.home));
+          Object.assign(row, tierFields(tiers, row.away, row.home), injFields(inj, row.away, row.home));
           locked++;
         }
       }
@@ -211,7 +321,7 @@ for (const league of leagues) {
         row.lock_pick = ex.rule_pick || null;
         row.lock_at = ex.pre_odds_at || nowIso;
         row.lock_late = true;
-        Object.assign(row, tierFields(tiers, row.away, row.home));
+        Object.assign(row, tierFields(tiers, row.away, row.home), injFields(inj, row.away, row.home));
         lockedLate++;
       }
       others.push(row);
@@ -224,4 +334,5 @@ for (const league of leagues) {
   console.log(`[${league}] ${seen.size} games (${preRows.filter(r => r.pre_odds != null).length} with a pre-game total, ${preRows.filter(r => r.rule_pick).length} with a rule pick)` +
     (existing ? `, locks: ${locked} on time, ${lockedLate} late` : ''));
 }
+if (leagues.includes('NBA') && URL_ && !DRY) { try { await updatePlayers(); } catch (e) { console.warn('players step failed: ' + e.message); } }
 console.log(`Done: ${total} rows`);
